@@ -6,12 +6,13 @@ use std::io::prelude::*;
 use std::process::{ChildStdin, ChildStdout, Command, Stdio};
 use std::str;
 
+use anyhow::{Context, Result};
 use clap::{AppSettings, Clap};
 use serde_json as json;
 use serde_transcode::transcode;
+use serde_yaml as yaml;
 
 use crate::format::Format;
-use anyhow::Result;
 
 struct Transcoder {
     input: Format,
@@ -26,7 +27,12 @@ impl Transcoder {
                 let input = String::from_utf8(input)?;
                 let mut de = toml::Deserializer::new(&input);
                 let mut ser = json::Serializer::new(jq);
-                transcode(&mut de, &mut ser)?;
+                transcode(&mut de, &mut ser).context("failed to transcode from TOML to JSON")?;
+            }
+            Format::Yaml => {
+                let de = yaml::Deserializer::from_reader(&*input);
+                let mut ser = json::Serializer::new(jq);
+                transcode(de, &mut ser).context("failed to transcode from YAML to JSON")?
             }
         }
         Ok(())
@@ -43,11 +49,16 @@ impl Transcoder {
                 let mut de = json::Deserializer::from_reader(jq);
                 let mut buf = String::new();
                 let mut ser = toml::Serializer::new(&mut buf);
-                transcode(&mut de, &mut ser)?;
+                transcode(&mut de, &mut ser).context("failed to transcode from JSON to TOML")?;
                 if !buf.ends_with('\n') {
                     buf.push('\n');
                 }
                 output.write_all(buf.as_bytes())?;
+            }
+            Format::Yaml => {
+                let mut de = json::Deserializer::from_reader(jq);
+                let mut ser = yaml::Serializer::new(output);
+                transcode(&mut de, &mut ser).context("failed to transcode from JSON to YAML")?;
             }
         }
         Ok(())

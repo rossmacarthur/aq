@@ -7,6 +7,7 @@ use thiserror::Error;
 pub enum Format {
     Json,
     Toml,
+    Yaml,
 }
 
 impl Default for Format {
@@ -24,6 +25,7 @@ impl fmt::Display for Format {
         let s = match self {
             Self::Json => "json",
             Self::Toml => "toml",
+            Self::Yaml => "yaml",
         };
         f.write_str(s)
     }
@@ -36,6 +38,7 @@ impl str::FromStr for Format {
         Ok(match s {
             "j" | "json" => Self::Json,
             "t" | "toml" => Self::Toml,
+            "y" | "yaml" => Self::Yaml,
             _ => return Err(ParseFormatError(s.to_owned())),
         })
     }

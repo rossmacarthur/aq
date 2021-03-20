@@ -6,7 +6,7 @@ Extend `jq` for any data format.
 
 - JSON
 - TOML
-- YAML (*planned*)
+- YAML
 
 ## License
 
