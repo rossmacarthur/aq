@@ -1,5 +1,6 @@
 mod format;
 
+use std::env;
 use std::ffi::OsString;
 use std::io;
 use std::io::prelude::*;
@@ -19,6 +20,12 @@ struct Transcoder {
 }
 
 impl Transcoder {
+    fn from_opt(opt: &Opt) -> Self {
+        let input = opt.input.unwrap_or_default();
+        let output = opt.output.unwrap_or(input);
+        Self { input, output }
+    }
+
     fn transcode_input(&self, mut input: io::Stdin, jq: &mut ChildStdin) -> Result<()> {
         match self.input {
             Format::Json => {
@@ -69,60 +76,64 @@ impl Transcoder {
 
 #[derive(Clap)]
 #[clap(
+    author,
+    about,
     global_setting = AppSettings::DeriveDisplayOrder,
     global_setting = AppSettings::DisableHelpSubcommand,
     global_setting = AppSettings::GlobalVersion,
-    global_setting = AppSettings::TrailingVarArg,
 )]
 struct Opt {
     /// The input data format.
-    #[clap(short, value_name = "format")]
+    #[clap(long, short, value_name = "format")]
     input: Option<Format>,
 
     /// The output data format [default: <input>].
-    #[clap(short, value_name = "format")]
+    #[clap(long, short, value_name = "format")]
     output: Option<Format>,
 
-    /// Arguments to be passed directly to jq...
+    /// The jq filter to apply to the input.
     #[clap()]
-    args: Vec<OsString>,
+    filter: OsString,
+}
+
+impl Opt {
+    fn from_args() -> (Self, Vec<OsString>) {
+        let args: Vec<_> = env::args_os().collect();
+        let mut it = args.splitn(2, |a| a == "--");
+        let args = it.next().unwrap();
+        let jq_args = it.next().unwrap_or_default();
+        let opt = Opt::parse_from(args);
+        (opt, jq_args.to_vec())
+    }
 }
 
 fn main() -> Result<()> {
-    let Opt {
-        input,
-        output,
-        args,
-    } = Opt::parse();
-    let input = input.unwrap_or_default();
-    let output = output.unwrap_or(input);
-    let t = Transcoder { input, output };
+    let (opt, jq_args) = Opt::from_args();
+    let t = Transcoder::from_opt(&opt);
 
     let mut cmd = Command::new("jq");
-    cmd.args(&args);
-
-    if atty::isnt(atty::Stream::Stdin) {
-        // Setup pipes
-        cmd.stdin(Stdio::piped());
-        cmd.stdout(Stdio::piped());
-
-        // Spawn jq and get handles to `stdin` and `stdout`
-        let mut jq = cmd.spawn()?;
-        let mut stdin = jq.stdin.take().unwrap();
-        let mut stdout = jq.stdout.take().unwrap();
-
-        t.transcode_input(io::stdin(), &mut stdin)?;
-
-        // NB! Otherwise `jq` will never exit
-        drop(stdin);
-
-        t.transcode_output(&mut stdout, io::stdout())?;
-
-        jq
-    } else {
-        // There is no stdin, so just spawn `jq` with the given args
-        cmd.spawn()?
+    // `jq` will detect that its stdout is a pipe so we force it to colorize the
+    // output here.
+    if let Format::Json = t.output {
+        cmd.arg("-C");
     }
-    .wait()?;
+    cmd.arg(&opt.filter);
+    cmd.args(&jq_args);
+    cmd.stdin(Stdio::piped());
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::inherit());
+
+    // Spawn `jq` and transcode input and output
+    let mut jq = cmd.spawn()?;
+
+    // NB! `stdin` must be dropped otherwise `jq` will never exit
+    {
+        let mut stdin = jq.stdin.take().unwrap();
+        t.transcode_input(io::stdin(), &mut stdin)?;
+    }
+    let mut stdout = jq.stdout.take().unwrap();
+    t.transcode_output(&mut stdout, io::stdout())?;
+
+    jq.wait()?;
     Ok(())
 }
