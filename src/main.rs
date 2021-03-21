@@ -4,7 +4,6 @@ use std::ffi::OsString;
 use std::io;
 use std::io::prelude::*;
 use std::process::{ChildStdin, ChildStdout, Command, Stdio};
-use std::str;
 
 use anyhow::{Context, Result};
 use clap::{AppSettings, Clap};
@@ -20,17 +19,21 @@ struct Transcoder {
 }
 
 impl Transcoder {
-    fn transcode_input(&self, input: Vec<u8>, jq: &mut ChildStdin) -> Result<()> {
+    fn transcode_input(&self, mut input: io::Stdin, jq: &mut ChildStdin) -> Result<()> {
         match self.input {
-            Format::Json => jq.write_all(&input)?,
+            Format::Json => {
+                io::copy(&mut input, jq)?;
+            }
             Format::Toml => {
-                let input = String::from_utf8(input)?;
-                let mut de = toml::Deserializer::new(&input);
+                // `toml` crate only deserializes from a string :(
+                let mut s = String::new();
+                input.read_to_string(&mut s)?;
+                let mut de = toml::Deserializer::new(&s);
                 let mut ser = json::Serializer::new(jq);
                 transcode(&mut de, &mut ser).context("failed to transcode from TOML to JSON")?;
             }
             Format::Yaml => {
-                let de = yaml::Deserializer::from_reader(&*input);
+                let de = yaml::Deserializer::from_reader(input);
                 let mut ser = json::Serializer::new(jq);
                 transcode(de, &mut ser).context("failed to transcode from YAML to JSON")?
             }
@@ -41,19 +44,18 @@ impl Transcoder {
     fn transcode_output(&self, jq: &mut ChildStdout, mut output: io::Stdout) -> Result<()> {
         match self.output {
             Format::Json => {
-                let mut buf = Vec::new();
-                jq.read_to_end(&mut buf)?;
-                output.write_all(&buf)?;
+                io::copy(jq, &mut output)?;
             }
             Format::Toml => {
+                // `toml` crate only serializes to a string :(
+                let mut s = String::new();
                 let mut de = json::Deserializer::from_reader(jq);
-                let mut buf = String::new();
-                let mut ser = toml::Serializer::new(&mut buf);
+                let mut ser = toml::Serializer::new(&mut s);
                 transcode(&mut de, &mut ser).context("failed to transcode from JSON to TOML")?;
-                if !buf.ends_with('\n') {
-                    buf.push('\n');
+                if !s.ends_with('\n') {
+                    s.push('\n');
                 }
-                output.write_all(buf.as_bytes())?;
+                output.write_all(s.as_bytes())?;
             }
             Format::Yaml => {
                 let mut de = json::Deserializer::from_reader(jq);
@@ -74,8 +76,8 @@ impl Transcoder {
 )]
 struct Opt {
     /// The input data format.
-    #[clap(short, default_value, value_name = "format")]
-    input: Format,
+    #[clap(short, value_name = "format")]
+    input: Option<Format>,
 
     /// The output data format [default: <input>].
     #[clap(short, value_name = "format")]
@@ -92,6 +94,7 @@ fn main() -> Result<()> {
         output,
         args,
     } = Opt::parse();
+    let input = input.unwrap_or_default();
     let output = output.unwrap_or(input);
     let t = Transcoder { input, output };
 
@@ -99,10 +102,6 @@ fn main() -> Result<()> {
     cmd.args(&args);
 
     if atty::isnt(atty::Stream::Stdin) {
-        // Read in the entire input
-        let mut input = Vec::new();
-        io::stdin().read_to_end(&mut input)?;
-
         // Setup pipes
         cmd.stdin(Stdio::piped());
         cmd.stdout(Stdio::piped());
@@ -112,7 +111,7 @@ fn main() -> Result<()> {
         let mut stdin = jq.stdin.take().unwrap();
         let mut stdout = jq.stdout.take().unwrap();
 
-        t.transcode_input(input, &mut stdin)?;
+        t.transcode_input(io::stdin(), &mut stdin)?;
 
         // NB! Otherwise `jq` will never exit
         drop(stdin);
