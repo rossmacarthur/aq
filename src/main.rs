@@ -112,10 +112,12 @@ fn main() -> Result<()> {
     let t = Transcoder::from_opt(&opt);
 
     let mut cmd = Command::new("jq");
-    // `jq` will detect that its stdout is a pipe so we force it to colorize the
-    // output here.
-    if let Format::Json = t.output {
-        cmd.arg("-C");
+    if atty::is(atty::Stream::Stdout) {
+        // `jq` will detect that its stdout is a pipe so we force it to colorize
+        // the output here.
+        if let Format::Json = t.output {
+            cmd.arg("-C");
+        }
     }
     cmd.arg(&opt.filter);
     cmd.args(&jq_args);
