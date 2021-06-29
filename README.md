@@ -31,7 +31,7 @@ you can use `j` for JSON, `t` for TOML, and `y` for YAML for maximum brevity.
 $ echo '[foo.bar]\nfield = 1337' | aq -it '.foo'
 ```
 ```toml
-[foo]
+[bar]
 field = 5
 ```
 
