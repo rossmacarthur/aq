@@ -5,6 +5,7 @@ use std::io;
 use std::io::prelude::*;
 use std::process::{ChildStdin, ChildStdout, Command, Stdio};
 
+use anyhow::bail;
 use anyhow::{Context, Result};
 use serde_json as json;
 use serde_transcode::transcode;
@@ -72,6 +73,13 @@ fn main() -> Result<()> {
     let t = parse::args()?;
 
     let mut cmd = Command::new("jq");
+    if atty::is(atty::Stream::Stdin) {
+        if t.jq_args.is_empty() {
+            parse::usage()
+        } else {
+            bail!("aq requires input via stdin");
+        }
+    }
     if atty::is(atty::Stream::Stdout) {
         // `jq` will detect that its stdout is a pipe so we force it to colorize
         // the output here. A user can still pass `-M` to undo this.

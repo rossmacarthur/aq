@@ -37,7 +37,7 @@ impl Format {
     }
 }
 
-fn usage() {
+pub fn usage() {
     const USAGE: &str = r#"Usage: aq [options] <jq filter>
 
 aq is a command line JSON / TOML / YAML processor built on top
