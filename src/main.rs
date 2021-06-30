@@ -76,6 +76,7 @@ impl Transcoder {
 
 #[derive(Clap)]
 #[clap(
+    name = env!("CARGO_BIN_NAME"),
     author,
     about,
     global_setting = AppSettings::DeriveDisplayOrder,
