@@ -1,31 +1,25 @@
-mod format;
+mod parse;
 
-use std::env;
 use std::ffi::OsString;
 use std::io;
 use std::io::prelude::*;
 use std::process::{ChildStdin, ChildStdout, Command, Stdio};
 
 use anyhow::{Context, Result};
-use clap::{AppSettings, Clap};
 use serde_json as json;
 use serde_transcode::transcode;
 use serde_yaml as yaml;
 
-use crate::format::Format;
+use crate::parse::Format;
 
-struct Transcoder {
+#[derive(Debug)]
+pub struct Transcoder {
     input: Format,
     output: Format,
+    jq_args: Vec<OsString>,
 }
 
 impl Transcoder {
-    fn from_opt(opt: &Opt) -> Self {
-        let input = opt.input.unwrap_or_default();
-        let output = opt.output.unwrap_or(input);
-        Self { input, output }
-    }
-
     fn transcode_input(&self, mut input: io::Stdin, jq: &mut ChildStdin) -> Result<()> {
         match self.input {
             Format::Json => {
@@ -74,43 +68,8 @@ impl Transcoder {
     }
 }
 
-#[derive(Clap)]
-#[clap(
-    name = env!("CARGO_BIN_NAME"),
-    author,
-    about,
-    global_setting = AppSettings::DeriveDisplayOrder,
-    global_setting = AppSettings::DisableHelpSubcommand,
-    global_setting = AppSettings::GlobalVersion,
-)]
-struct Opt {
-    /// The input data format.
-    #[clap(long, short, value_name = "format")]
-    input: Option<Format>,
-
-    /// The output data format [default: <input>].
-    #[clap(long, short, value_name = "format")]
-    output: Option<Format>,
-
-    /// The jq filter to apply to the input.
-    #[clap()]
-    filter: Option<OsString>,
-}
-
-impl Opt {
-    fn from_args() -> (Self, Vec<OsString>) {
-        let args: Vec<_> = env::args_os().collect();
-        let mut it = args.splitn(2, |a| a == "--");
-        let args = it.next().unwrap();
-        let jq_args = it.next().unwrap_or_default();
-        let opt = Opt::parse_from(args);
-        (opt, jq_args.to_vec())
-    }
-}
-
 fn main() -> Result<()> {
-    let (opt, jq_args) = Opt::from_args();
-    let t = Transcoder::from_opt(&opt);
+    let t = parse::args()?;
 
     let mut cmd = Command::new("jq");
     if atty::is(atty::Stream::Stdout) {
@@ -120,10 +79,7 @@ fn main() -> Result<()> {
             cmd.arg("-C");
         }
     }
-    if let Some(filter) = &opt.filter {
-        cmd.arg(filter);
-    }
-    cmd.args(&jq_args);
+    cmd.args(&t.jq_args);
     cmd.stdin(Stdio::piped());
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::inherit());
