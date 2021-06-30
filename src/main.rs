@@ -93,7 +93,7 @@ struct Opt {
 
     /// The jq filter to apply to the input.
     #[clap()]
-    filter: OsString,
+    filter: Option<OsString>,
 }
 
 impl Opt {
@@ -114,12 +114,14 @@ fn main() -> Result<()> {
     let mut cmd = Command::new("jq");
     if atty::is(atty::Stream::Stdout) {
         // `jq` will detect that its stdout is a pipe so we force it to colorize
-        // the output here.
+        // the output here. A user can still pass `-M` to undo this.
         if let Format::Json = t.output {
             cmd.arg("-C");
         }
     }
-    cmd.arg(&opt.filter);
+    if let Some(filter) = &opt.filter {
+        cmd.arg(filter);
+    }
     cmd.args(&jq_args);
     cmd.stdin(Stdio::piped());
     cmd.stdout(Stdio::piped());
