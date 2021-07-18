@@ -66,13 +66,15 @@ pub fn args() -> Result<Transcoder> {
 
     let mut input: Option<Format> = None;
     let mut output: Option<Format> = None;
+    let mut input_raw = false;
+    let mut output_raw = false;
     let mut jq_args = Vec::with_capacity(args.len());
 
     while let Some(arg) = args.next() {
         let missing = || {
             format!(
                 "the argument `{}` requires a value but none was supplied",
-                arg.to_string_lossy(),
+                arg.to_str().unwrap(),
             )
         };
         match arg.as_os_str().to_str() {
@@ -92,14 +94,33 @@ pub fn args() -> Result<Transcoder> {
             Some(arg) if arg.starts_with("-o") => {
                 output = Some(Format::from_str(&arg[2..])?);
             }
-            _ => jq_args.push(arg),
+            Some(args) if args.starts_with('-') && !args.starts_with("--") => {
+                if args.contains('r') {
+                    output_raw = true;
+                }
+                if args.contains('R') {
+                    input_raw = true;
+                }
+                jq_args.push(arg);
+            }
+            _ => {
+                jq_args.push(arg);
+            }
         }
     }
 
     jq_args.extend(args);
 
     let input = input.unwrap_or_default();
-    let output = output.unwrap_or(input);
+    let output = output.unwrap_or_else(|| if output_raw { Format::Json } else { input });
+
+    if input_raw && input != Format::Json {
+        bail!("`-R` is only compatible with JSON input")
+    }
+    if output_raw && output != Format::Json {
+        bail!("`-r` is only compatible with JSON output")
+    }
+
     Ok(Transcoder {
         input,
         output,
