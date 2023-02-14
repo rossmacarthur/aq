@@ -1,8 +1,8 @@
 # aq
 
-[![Crates.io version](https://img.shields.io/crates/v/aq-cli.svg)](https://crates.io/crates/aq-cli)
+[![Crates.io Version](https://img.shields.io/crates/v/aq-cli.svg)](https://crates.io/crates/aq-cli)
 [![Download](https://img.shields.io/github/v/release/rossmacarthur/aq?label=binary)](https://github.com/rossmacarthur/aq/releases/latest)
-[![Build status](https://img.shields.io/github/workflow/status/rossmacarthur/aq/build/trunk)](https://github.com/rossmacarthur/aq/actions?query=workflow%3Abuild)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/rossmacarthur/aq/build.yaml?branch=trunk)](https://github.com/rossmacarthur/aq/actions/workflows/build.yaml)
 
 Extend [`jq`](https://stedolan.github.io/jq/manual) for any data format.
 Currently supports JSON, TOML, and YAML.
@@ -15,7 +15,7 @@ the required artifact, and extract the `aq` binary to the given directory.
 
 ```sh
 curl --proto '=https' -fLsS https://rossmacarthur.github.io/install/crate.sh \
-    | bash -s -- --repo rossmacarthur/aq --to ~/.local/bin
+    | bash -s -- --repo rossmacarthur/aq --to /usr/local/bin
 ```
 
 Alternatively, you can download an artifact directly from the [the releases
@@ -66,10 +66,7 @@ bar = 1337
 
 ## License
 
-Licensed under either of
+This project is distributed under the terms of both the MIT license and the
+Apache License (Version 2.0).
 
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or
-  http://www.apache.org/licenses/LICENSE-2.0)
-- MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
-
-at your option.
+See [LICENSE-APACHE](LICENSE-APACHE) and [LICENSE-MIT](LICENSE-MIT) for details.
