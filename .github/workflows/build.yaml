@@ -15,13 +15,12 @@ jobs:
         toolchain: [stable, beta, nightly]
 
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
 
-    - uses: actions-rs/toolchain@v1
+    - uses: dtolnay/rust-toolchain@master
       with:
         toolchain: ${{ matrix.toolchain }}
         components: rustfmt, clippy
-        override: true
 
     - name: Rustfmt
       run: cargo fmt -- --check
@@ -36,13 +35,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
 
       - name: Calculate version from tag
         id: version
-        run: echo "::set-output name=value::${GITHUB_REF#refs/tags/}"
+        run: echo "value=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
-      - name: Check tag against package versions
+      - name: Check tag against package version
         run: grep '^version = "${{ steps.version.outputs.value }}"$' Cargo.toml
 
   publish:
@@ -50,13 +49,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v2
-
-    - uses: actions-rs/toolchain@v1
-      with:
-        toolchain: stable
-        profile: minimal
-        override: true
+    - uses: actions/checkout@v3
+    - uses: dtolnay/rust-toolchain@stable
 
     - name: Publish
       env:
@@ -77,18 +71,13 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v2
-
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
 
       - name: Calculate version from tag
         id: version
         shell: bash
-        run: echo "::set-output name=value::${GITHUB_REF#refs/tags/}"
+        run: echo "value=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
       - name: Build
         shell: bash
