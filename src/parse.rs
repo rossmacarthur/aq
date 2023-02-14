@@ -6,17 +6,12 @@ use anyhow::{bail, Context, Result};
 
 use crate::Transcoder;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum Format {
+    #[default]
     Json,
     Toml,
     Yaml,
-}
-
-impl Default for Format {
-    fn default() -> Self {
-        Self::Json
-    }
 }
 
 impl Format {
@@ -57,7 +52,7 @@ Example (input JSON, output TOML):
 
 aq passes all other options and arguments directly to jq.
 See jq --help or the jq man page for more options."#;
-    eprintln!("{}", USAGE);
+    eprintln!("{USAGE}");
     process::exit(0)
 }
 
@@ -112,7 +107,7 @@ pub fn args() -> Result<Transcoder> {
     jq_args.extend(args);
 
     let input = input.unwrap_or_default();
-    let output = output.unwrap_or_else(|| if output_raw { Format::Json } else { input });
+    let output = output.unwrap_or(if output_raw { Format::Json } else { input });
 
     if input_raw && input != Format::Json {
         bail!("`-R` is only compatible with JSON input")

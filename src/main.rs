@@ -7,6 +7,7 @@ use std::process::{ChildStdin, ChildStdout, Command, Stdio};
 
 use anyhow::bail;
 use anyhow::{Context, Result};
+use is_terminal::IsTerminal;
 use serde_json as json;
 use serde_transcode::transcode;
 use serde_yaml as yaml;
@@ -30,9 +31,9 @@ impl Transcoder {
                 // `toml` crate only deserializes from a string :(
                 let mut s = String::new();
                 input.read_to_string(&mut s)?;
-                let mut de = toml::Deserializer::new(&s);
+                let de = toml::Deserializer::new(&s);
                 let mut ser = json::Serializer::new(jq);
-                transcode(&mut de, &mut ser).context("failed to transcode from TOML to JSON")?;
+                transcode(de, &mut ser).context("failed to transcode from TOML to JSON")?;
             }
             Format::Yaml => {
                 let de = yaml::Deserializer::from_reader(input);
@@ -52,8 +53,8 @@ impl Transcoder {
                 // `toml` crate only serializes to a string :(
                 let mut s = String::new();
                 let mut de = json::Deserializer::from_reader(jq);
-                let mut ser = toml::Serializer::new(&mut s);
-                transcode(&mut de, &mut ser).context("failed to transcode from JSON to TOML")?;
+                let ser = toml::Serializer::new(&mut s);
+                transcode(&mut de, ser).context("failed to transcode from JSON to TOML")?;
                 if !s.ends_with('\n') {
                     s.push('\n');
                 }
@@ -73,14 +74,14 @@ fn main() -> Result<()> {
     let t = parse::args()?;
 
     let mut cmd = Command::new("jq");
-    if atty::is(atty::Stream::Stdin) {
+    if io::stdin().is_terminal() {
         if t.jq_args.is_empty() {
             parse::usage()
         } else {
             bail!("aq requires input via stdin");
         }
     }
-    if atty::is(atty::Stream::Stdout) {
+    if io::stdout().is_terminal() {
         // `jq` will detect that its stdout is a pipe so we force it to colorize
         // the output here. A user can still pass `-M` to undo this.
         if let Format::Json = t.output {
