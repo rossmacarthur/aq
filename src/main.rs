@@ -3,11 +3,11 @@ mod parse;
 use std::ffi::OsString;
 use std::io;
 use std::io::prelude::*;
+use std::io::IsTerminal;
 use std::process::{ChildStdin, ChildStdout, Command, Stdio};
 
 use anyhow::bail;
 use anyhow::{Context, Result};
-use is_terminal::IsTerminal;
 use serde_json as json;
 use serde_transcode::transcode;
 use serde_yaml as yaml;
