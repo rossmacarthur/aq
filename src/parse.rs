@@ -1,5 +1,4 @@
 use std::env;
-use std::ffi::OsStr;
 use std::process;
 
 use anyhow::{bail, Context, Result};
@@ -16,18 +15,11 @@ pub enum Format {
 
 impl Format {
     fn from_str(s: &str) -> Result<Self> {
-        Self::from_os_str(OsStr::new(s))
-    }
-
-    fn from_os_str(s: &OsStr) -> Result<Self> {
-        Ok(match s.to_str() {
-            Some("j" | "json") => Self::Json,
-            Some("t" | "toml") => Self::Toml,
-            Some("y" | "yaml") => Self::Yaml,
-            _ => bail!(
-                "invalid format `{}`, expected `json`, `toml`, or `yaml`",
-                s.to_string_lossy()
-            ),
+        Ok(match s {
+            "j" | "json" => Self::Json,
+            "t" | "toml" => Self::Toml,
+            "y" | "yaml" => Self::Yaml,
+            _ => bail!("invalid format `{}`, expected `json`, `toml`, or `yaml`", s),
         })
     }
 }
@@ -77,17 +69,35 @@ pub fn args() -> Result<Transcoder> {
             Some("-h" | "--help") => usage(),
             Some("-i" | "--input") => {
                 let fmt = args.next().with_context(missing)?;
-                input = Some(Format::from_os_str(&fmt)?);
+                let fmt = fmt.to_str().context("invalid UTF-8")?;
+                input = Some(Format::from_str(fmt)?);
             }
             Some(arg) if arg.starts_with("-i") => {
-                input = Some(Format::from_str(&arg[2..])?);
+                let fmt = &arg[2..].trim_start_matches('=');
+                input = Some(Format::from_str(fmt)?);
+            }
+            Some(arg) if arg.starts_with("--input=") => {
+                input = Some(Format::from_str(&arg[8..])?);
             }
             Some("-o" | "--output") => {
                 let fmt = args.next().with_context(missing)?;
-                output = Some(Format::from_os_str(&fmt)?);
+                let fmt = fmt.to_str().context("invalid UTF-8")?;
+                output = Some(Format::from_str(fmt)?);
+            }
+            Some(arg) if arg.starts_with("--output=") => {
+                output = Some(Format::from_str(&arg[9..])?);
             }
             Some(arg) if arg.starts_with("-o") => {
-                output = Some(Format::from_str(&arg[2..])?);
+                let fmt = &arg[2..].trim_start_matches('=');
+                output = Some(Format::from_str(fmt)?);
+            }
+            Some("--raw-input") => {
+                input_raw = true;
+                jq_args.push(arg);
+            }
+            Some("--raw-output") => {
+                output_raw = true;
+                jq_args.push(arg);
             }
             Some(args) if args.starts_with('-') && !args.starts_with("--") => {
                 if args.contains('r') {
