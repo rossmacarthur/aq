@@ -1,34 +1,54 @@
 # aq
 
-[![Crates.io Version](https://img.shields.io/crates/v/aq-cli.svg)](https://crates.io/crates/aq-cli)
-[![Download](https://img.shields.io/github/v/release/rossmacarthur/aq?label=binary)](https://github.com/rossmacarthur/aq/releases/latest)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/rossmacarthur/aq/build.yaml?branch=trunk)](https://github.com/rossmacarthur/aq/actions/workflows/build.yaml)
+[![Crates.io Version](https://badgers.space/crates/version/aq-cli)](https://crates.io/crates/aq-cli)
+[![Build Status](https://badgers.space/github/checks/rossmacarthur/aq/trunk?label=build)](https://github.com/rossmacarthur/aq/actions/workflows/build.yaml)
 
 Extend [`jq`](https://stedolan.github.io/jq/manual) for any data format.
 Currently supports JSON, TOML, and YAML.
 
 ## 📦 Installation
 
-Pre-built binaries for 64-bit Linux, macOS, and Windows are provided. The
-following script can be used to automatically detect your host system, download
-the required artifact, and extract the `aq` binary to the given directory.
+### Homebrew
+
+**`aq`** can be installed from my personal tap which includes pre-built
+binaries.
 
 ```sh
-curl --proto '=https' -fLsS https://rossmacarthur.github.io/install/crate.sh \
-    | bash -s -- --repo rossmacarthur/aq --to /usr/local/bin
+brew install rossmacarthur/tap/aq
 ```
-
-Alternatively, you can download an artifact directly from the [the releases
-page](https://github.com/rossmacarthur/aq/releases).
 
 ### Cargo
 
-`aq` can be installed from [Crates.io](https://crates.io/crates/aq-cli)
-using [Cargo](https://doc.rust-lang.org/cargo/), the Rust package manager.
+**`aq`** can be installed from
+[Crates.io](https://crates.io/crates/aq-cli) using
+[Cargo](https://doc.rust-lang.org/cargo/), the Rust package manager.
 
 ```sh
 cargo install aq-cli
 ```
+
+In some circumstances this can fail due to the fact that Cargo does not use
+`Cargo.lock` file by default. You can force Cargo to use it using the `--locked`
+option.
+
+```sh
+cargo install aq-cli --locked
+```
+
+### Pre-built binaries
+
+Pre-built binaries for macOS (x86_64), Windows, Linux (x86_64) are provided.
+These can be downloaded directly from the [the releases page].
+
+Alternatively, the following script can be used to automatically detect your host
+system, download the required artifact, and extract the `aq` binary to the
+given directory.
+```sh
+curl --proto '=https' -fLsS https://rossmacarthur.github.io/install/crate.sh \
+    | bash -s -- --repo rossmacarthur/aq --to ~/.local/bin
+```
+
+[the releases page]: https://github.com/rossmacarthur/aq/releases
 
 ## 🤸 Usage
 
