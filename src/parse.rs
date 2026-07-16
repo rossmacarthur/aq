@@ -1,5 +1,6 @@
 use std::env;
 use std::ffi::OsString;
+use std::path::Path;
 use std::process;
 
 use anyhow::{bail, Context, Result};
@@ -168,7 +169,17 @@ pub fn args() -> Result<Transcoder> {
         args.append(&mut files);
     }
 
-    let input = input.unwrap_or_default();
+    let input = input.unwrap_or_else(|| {
+        for path in &files {
+            match Path::new(path).extension().and_then(|ext| ext.to_str()) {
+                Some("json" | "jsonl" | "ndjson") => return Format::Json,
+                Some("toml") => return Format::Toml,
+                Some("yaml") | Some("yml") => return Format::Yaml,
+                _ => {}
+            }
+        }
+        Format::Json
+    });
     let output = output.unwrap_or(if info.raw_output { Format::Json } else { input });
 
     for (arg, is_set) in [
