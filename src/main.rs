@@ -10,7 +10,7 @@ use std::process::{ChildStdin, ChildStdout, Command, Stdio};
 use anyhow::{Context, Result};
 use serde_json as json;
 use serde_transcode::transcode;
-use serde_yaml as yaml;
+use yaml_serde as yaml;
 
 use crate::parse::{Format, Opt};
 
