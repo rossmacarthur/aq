@@ -1,28 +1,79 @@
 mod parse;
 
-use std::ffi::OsString;
+use std::fs::File;
 use std::io;
 use std::io::prelude::*;
 use std::io::IsTerminal;
+use std::path::PathBuf;
 use std::process::{ChildStdin, ChildStdout, Command, Stdio};
 
-use anyhow::bail;
 use anyhow::{Context, Result};
 use serde_json as json;
 use serde_transcode::transcode;
 use serde_yaml as yaml;
 
-use crate::parse::Format;
+use crate::parse::{Format, Opt};
 
 #[derive(Debug)]
 pub struct Transcoder {
+    opt: Opt,
     input: Format,
     output: Format,
-    jq_args: Vec<OsString>,
+}
+
+fn main() -> Result<()> {
+    let t = parse::args()?;
+
+    let mut cmd = Command::new("jq");
+
+    if io::stdin().is_terminal() && !t.opt.info.filter {
+        parse::usage();
+    }
+
+    if io::stdout().is_terminal() {
+        // `jq` will detect that its stdout is a pipe so we force it to colorize
+        // the output here. A user can still pass `-M` to undo this.
+        if let Format::Json = t.output {
+            cmd.arg("-C");
+        }
+    }
+
+    cmd.args(&t.opt.args);
+    cmd.stdin(Stdio::piped());
+    cmd.stdin(Stdio::piped());
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::inherit());
+
+    // Spawn `jq` and transcode input and output
+    let mut jq = cmd.spawn()?;
+
+    // NB! `stdin` must be dropped otherwise `jq` will never exit
+    {
+        let mut stdin = jq.stdin.take().unwrap();
+        if t.opt.files.is_empty() {
+            t.transcode_input(io::stdin(), &mut stdin)?;
+        } else {
+            for path in &t.opt.files {
+                if path.to_str() == Some("-") {
+                    t.transcode_input(io::stdin(), &mut stdin)?;
+                } else {
+                    let file = File::open(path).with_context(|| {
+                        format!("failed to open `{}`", PathBuf::from(path).display())
+                    })?;
+                    t.transcode_input(file, &mut stdin)?;
+                }
+            }
+        }
+    }
+    let mut stdout = jq.stdout.take().unwrap();
+    t.transcode_output(&mut stdout, io::stdout())?;
+
+    jq.wait()?;
+    Ok(())
 }
 
 impl Transcoder {
-    fn transcode_input(&self, mut input: io::Stdin, jq: &mut ChildStdin) -> Result<()> {
+    fn transcode_input<R: Read>(&self, mut input: R, jq: &mut ChildStdin) -> Result<()> {
         match self.input {
             Format::Json => {
                 io::copy(&mut input, jq)?;
@@ -68,42 +119,4 @@ impl Transcoder {
         }
         Ok(())
     }
-}
-
-fn main() -> Result<()> {
-    let t = parse::args()?;
-
-    let mut cmd = Command::new("jq");
-    if io::stdin().is_terminal() {
-        if t.jq_args.is_empty() {
-            parse::usage()
-        } else {
-            bail!("aq requires input via stdin");
-        }
-    }
-    if io::stdout().is_terminal() {
-        // `jq` will detect that its stdout is a pipe so we force it to colorize
-        // the output here. A user can still pass `-M` to undo this.
-        if let Format::Json = t.output {
-            cmd.arg("-C");
-        }
-    }
-    cmd.args(&t.jq_args);
-    cmd.stdin(Stdio::piped());
-    cmd.stdout(Stdio::piped());
-    cmd.stderr(Stdio::inherit());
-
-    // Spawn `jq` and transcode input and output
-    let mut jq = cmd.spawn()?;
-
-    // NB! `stdin` must be dropped otherwise `jq` will never exit
-    {
-        let mut stdin = jq.stdin.take().unwrap();
-        t.transcode_input(io::stdin(), &mut stdin)?;
-    }
-    let mut stdout = jq.stdout.take().unwrap();
-    t.transcode_output(&mut stdout, io::stdout())?;
-
-    jq.wait()?;
-    Ok(())
 }

@@ -1,9 +1,30 @@
 use std::env;
+use std::ffi::OsString;
 use std::process;
 
 use anyhow::{bail, Context, Result};
 
 use crate::Transcoder;
+
+#[derive(Debug, Default)]
+pub struct Opt {
+    /// Info about some jq options that are set
+    pub info: Info,
+    /// Arguments to pass to jq
+    pub args: Vec<OsString>,
+    /// Files to read input from
+    pub files: Vec<OsString>,
+}
+
+#[derive(Debug, Default)]
+pub struct Info {
+    pub filter: bool,
+    pub null_input: bool,
+    pub raw_input: bool,
+    pub raw_output: bool,
+    pub args: bool,
+    pub jsonargs: bool,
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum Format {
@@ -24,15 +45,16 @@ impl Format {
     }
 }
 
-pub fn usage() {
-    const USAGE: &str = r#"Usage: aq [options] <jq filter>
+pub fn usage() -> ! {
+    const USAGE: &str = r#"aq - command line JSON / TOML / YAML processor
+     built on top of jq by transcoding to and from JSON.
 
-aq is a command line JSON / TOML / YAML processor built on top
-of jq by transcoding to and from JSON.
+Usage: aq [options] <jq filter> [file...]
 
 Options:
     -i, --input <fmt>  the input data format [default: json]
     -o, --output <fmt> the output data format [default: input]
+    ...                other options are passed directly to jq
 
 Where <fmt> is one of json, toml, or yaml. Formats can also be
 specified using the shorthand j, t, or y.
@@ -40,24 +62,24 @@ specified using the shorthand j, t, or y.
 Example (input JSON, output TOML):
 
     $ echo '{"foo": 1337}' | aq -ij -ot .
-    foo = 1337
+    foo = 1337"
 
-aq passes all other options and arguments directly to jq.
-See jq --help or the jq man page for more options."#;
+See jq --help or the jq man page for more options"#;
     eprintln!("{USAGE}");
     process::exit(0)
 }
 
 pub fn args() -> Result<Transcoder> {
-    let mut args = env::args_os().skip(1);
+    let mut iter = env::args_os().skip(1);
 
     let mut input: Option<Format> = None;
     let mut output: Option<Format> = None;
-    let mut input_raw = false;
-    let mut output_raw = false;
-    let mut jq_args = Vec::with_capacity(args.len());
 
-    while let Some(arg) = args.next() {
+    let mut info = Info::default();
+    let mut args = Vec::new();
+    let mut files = Vec::new();
+
+    while let Some(arg) = iter.next() {
         let missing = || {
             format!(
                 "the argument `{}` requires a value but none was supplied",
@@ -65,10 +87,16 @@ pub fn args() -> Result<Transcoder> {
             )
         };
         match arg.as_os_str().to_str() {
-            Some("--") => break,
-            Some("-h" | "--help") => usage(),
+            Some("-h" | "--help") => {
+                usage();
+            }
+            Some("--") => {
+                // This signals that all remaining arguments are not options
+                files.extend(iter);
+                break;
+            }
             Some("-i" | "--input") => {
-                let fmt = args.next().with_context(missing)?;
+                let fmt = iter.next().with_context(missing)?;
                 let fmt = fmt.to_str().context("invalid UTF-8")?;
                 input = Some(Format::from_str(fmt)?);
             }
@@ -80,7 +108,7 @@ pub fn args() -> Result<Transcoder> {
                 input = Some(Format::from_str(&arg[8..])?);
             }
             Some("-o" | "--output") => {
-                let fmt = args.next().with_context(missing)?;
+                let fmt = iter.next().with_context(missing)?;
                 let fmt = fmt.to_str().context("invalid UTF-8")?;
                 output = Some(Format::from_str(fmt)?);
             }
@@ -91,44 +119,74 @@ pub fn args() -> Result<Transcoder> {
                 let fmt = &arg[2..].trim_start_matches('=');
                 output = Some(Format::from_str(fmt)?);
             }
+            Some("--null-input") => {
+                info.null_input = true;
+                args.push(arg);
+            }
             Some("--raw-input") => {
-                input_raw = true;
-                jq_args.push(arg);
+                info.raw_input = true;
+                args.push(arg);
             }
             Some("--raw-output") => {
-                output_raw = true;
-                jq_args.push(arg);
+                info.raw_output = true;
+                args.push(arg);
             }
-            Some(args) if args.starts_with('-') && !args.starts_with("--") => {
-                if args.contains('r') {
-                    output_raw = true;
+            Some("--args") => {
+                info.args = true;
+                args.push(arg);
+            }
+            Some("--jsonargs") => {
+                info.jsonargs = true;
+                args.push(arg);
+            }
+            Some(opt) if opt != "-" && opt.starts_with('-') => {
+                if !opt.starts_with("--") {
+                    if opt.contains('r') {
+                        info.raw_output = true;
+                    }
+                    if opt.contains('R') {
+                        info.raw_input = true;
+                    }
+                    if opt.contains('n') {
+                        info.null_input = true;
+                    }
                 }
-                if args.contains('R') {
-                    input_raw = true;
-                }
-                jq_args.push(arg);
+                args.push(arg);
             }
             _ => {
-                jq_args.push(arg);
+                if info.filter {
+                    files.push(arg);
+                } else {
+                    info.filter = true;
+                    args.push(arg);
+                }
             }
         }
     }
 
-    jq_args.extend(args);
+    if info.args || info.jsonargs {
+        args.append(&mut files);
+    }
 
     let input = input.unwrap_or_default();
-    let output = output.unwrap_or(if output_raw { Format::Json } else { input });
+    let output = output.unwrap_or(if info.raw_output { Format::Json } else { input });
 
-    if input_raw && input != Format::Json {
-        bail!("`-R` is only compatible with JSON input")
+    for (arg, is_set) in [
+        ("-R / --raw-input", info.raw_input),
+        ("--args", info.args),
+        ("--jsonargs", info.jsonargs),
+    ] {
+        if is_set && input != Format::Json {
+            bail!("`{}` is only compatible with JSON input", arg)
+        }
     }
-    if output_raw && output != Format::Json {
+    if info.raw_output && output != Format::Json {
         bail!("`-r` is only compatible with JSON output")
     }
 
     Ok(Transcoder {
         input,
         output,
-        jq_args,
+        opt: Opt { info, args, files },
     })
 }
