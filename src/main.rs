@@ -26,16 +26,12 @@ fn main() -> Result<()> {
 
     let mut cmd = Command::new("jq");
 
-    if io::stdin().is_terminal() && !t.opt.info.filter {
+    if !t.opt.info.filter && io::stdin().is_terminal() {
         parse::usage();
     }
 
-    if io::stdout().is_terminal() {
-        // `jq` will detect that its stdout is a pipe so we force it to colorize
-        // the output here. A user can still pass `-M` to undo this.
-        if let Format::Json = t.output {
-            cmd.arg("-C");
-        }
+    if t.opt.force_color_output && io::stdout().is_terminal() {
+        cmd.arg("-C");
     }
 
     cmd.args(&t.opt.args);

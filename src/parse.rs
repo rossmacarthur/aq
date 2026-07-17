@@ -15,6 +15,8 @@ pub struct Opt {
     pub args: Vec<OsString>,
     /// Files to read input from
     pub files: Vec<OsString>,
+    /// Whether to force color output (pass -C to jq)
+    pub force_color_output: bool,
 }
 
 #[derive(Debug, Default)]
@@ -23,6 +25,8 @@ pub struct Info {
     pub null_input: bool,
     pub raw_input: bool,
     pub raw_output: bool,
+    pub color_output: bool,
+    pub monochrome_output: bool,
     pub args: bool,
     pub jsonargs: bool,
 }
@@ -159,14 +163,20 @@ pub fn args() -> Result<Transcoder> {
             }
             Some(opt) if opt != "-" && opt.starts_with('-') => {
                 if !opt.starts_with("--") {
-                    if opt.contains('r') {
-                        info.raw_output = true;
+                    if opt.contains('n') {
+                        info.null_input = true;
                     }
                     if opt.contains('R') {
                         info.raw_input = true;
                     }
-                    if opt.contains('n') {
-                        info.null_input = true;
+                    if opt.contains('r') {
+                        info.raw_output = true;
+                    }
+                    if opt.contains("C") {
+                        info.color_output = true;
+                    }
+                    if opt.contains("M") {
+                        info.monochrome_output = true;
                     }
                 }
                 args.push(arg);
@@ -212,9 +222,21 @@ pub fn args() -> Result<Transcoder> {
         bail!("`-r` is only compatible with JSON output")
     }
 
+    let force_color_output = output == Format::Json
+        && !info.monochrome_output
+        && !info.color_output
+        && !env::var_os("NO_COLOR")
+            .and_then(|v| v.to_str().map(|s| !s.is_empty()))
+            .unwrap_or(false);
+
     Ok(Transcoder {
         input,
         output,
-        opt: Opt { info, args, files },
+        opt: Opt {
+            info,
+            args,
+            files,
+            force_color_output,
+        },
     })
 }
