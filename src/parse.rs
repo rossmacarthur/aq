@@ -139,6 +139,24 @@ pub fn args() -> Result<Transcoder> {
                 info.jsonargs = true;
                 args.push(arg);
             }
+            // options that take one argument
+            Some("--indent" | "--library-path") => {
+                let a = iter.next().with_context(missing)?;
+                args.push(arg);
+                args.push(a);
+            }
+            // options that take two arguments
+            Some(opt @ ("--arg" | "--argjson" | "--slurpfile" | "--rawfile")) => {
+                let a = iter.next().with_context(|| {
+                    format!("the argument `{opt}` requires two values, but none were supplied")
+                })?;
+                let b = iter.next().with_context(|| {
+                    format!("the argument `{opt}` requires two values, but only one was supplied")
+                })?;
+                args.push(arg);
+                args.push(a);
+                args.push(b);
+            }
             Some(opt) if opt != "-" && opt.starts_with('-') => {
                 if !opt.starts_with("--") {
                     if opt.contains('r') {
