@@ -51,24 +51,44 @@ impl Format {
 
 pub fn usage() -> ! {
     const USAGE: &str = r#"aq - command line JSON / TOML / YAML processor
-     built on top of jq by transcoding to and from JSON.
+     built on top of jq by transcoding to and from JSON
 
 Usage: aq [options] <jq filter> [file...]
 
 Options:
-    -i, --input <fmt>  the input data format [default: json]
-    -o, --output <fmt> the output data format [default: input]
-    ...                other options are passed directly to jq
+  -i, --input <fmt>  the input data format [default: auto]
+  -o, --output <fmt> the output data format [default: json]
+  ...                other options are passed directly to jq
 
-Where <fmt> is one of json, toml, or yaml. Formats can also be
-specified using the shorthand j, t, or y.
+Where <fmt> is one of json, toml, or yaml. Formats can also be specified
+using the shorthand j, t, or y. When the input format is not specified,
+it is inferred from the file extension of the input files, if stdin is
+used then the input format defaults to json.
+
+All other options are passed directly to jq. See jq --help or the jq man
+page for more details. Some options may only be compatible with certain
+input or output formats. aq does make some effort to detect incompatible
+options but some may simply have no effect.
+
+Example (input YAML, output JSON):
+
+    $ echo 'foo: 1337' | aq -iy .
+    {
+      "foo": 1337
+    }
+
+Example (input TOML, output JSON):
+
+    $ echo -e '[foo]\nbar = 1337' | aq -it .foo
+    {
+      "bar": 1337
+    }
 
 Example (input JSON, output TOML):
 
-    $ echo '{"foo": 1337}' | aq -ij -ot .
-    foo = 1337"
-
-See jq --help or the jq man page for more options"#;
+    $ aq -n --arg name "Alice" '{name: $name}' --output toml
+    name = "Alice"
+"#;
     eprintln!("{USAGE}");
     process::exit(0)
 }

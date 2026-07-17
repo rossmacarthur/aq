@@ -52,7 +52,7 @@ curl --proto '=https' -fLsS https://rossmacarthur.github.io/install/crate.sh \
 
 ## 🤸 Usage
 
-By default `aq` behaves just like [`jq`](https://stedolan.github.io/jq/manual)
+By default `aq` behaves just like [`jq`](https://jqlang.org/manual/)
 and operates on JSON.
 ```sh
 $ echo '{"foo":{"bar": 1337}}' | aq .foo
@@ -75,13 +75,25 @@ $ echo '[foo]\nbar = 1337' | aq -i toml -o json .foo
 }
 ```
 
-If not provided, the output format defaults to the input format. Additionally,
-you can use `j` for JSON, `t` for TOML, and `y` for YAML for maximum brevity.
+When the input format is not specified, it is inferred from the file extension
+of the input files, if stdin is used then the input format defaults to JSON. The
+output format always defaults to JSON.
+
+Additionally, you can use `j` for JSON, `t` for TOML, and `y` for YAML for
+maximum brevity.
 ```sh
 $ echo '[foo]\nbar = 1337' | aq -it .foo
 ```
 ```toml
 bar = 1337
+```
+
+Other options are forwarded to `jq` and can be used as normal.
+```sh
+$ aq -n --arg name "Alice" '{name: $name}' --output yaml
+```
+```yaml
+name: Alice
 ```
 
 ## License
