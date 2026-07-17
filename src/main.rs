@@ -48,7 +48,7 @@ fn main() -> Result<()> {
     let mut jq = cmd.spawn()?;
 
     // NB! `stdin` must be dropped otherwise `jq` will never exit
-    {
+    if !t.opt.info.null_input {
         let mut stdin = jq.stdin.take().unwrap();
         if t.opt.files.is_empty() {
             t.transcode_input(io::stdin(), &mut stdin)?;
@@ -65,6 +65,7 @@ fn main() -> Result<()> {
             }
         }
     }
+
     let mut stdout = jq.stdout.take().unwrap();
     t.transcode_output(&mut stdout, io::stdout())?;
 
