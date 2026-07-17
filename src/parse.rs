@@ -27,9 +27,8 @@ pub struct Info {
     pub jsonargs: bool,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Format {
-    #[default]
     Json,
     Toml,
     Yaml,
@@ -180,7 +179,7 @@ pub fn args() -> Result<Transcoder> {
         }
         Format::Json
     });
-    let output = output.unwrap_or(if info.raw_output { Format::Json } else { input });
+    let output = output.unwrap_or(Format::Json);
 
     for (arg, is_set) in [
         ("-R / --raw-input", info.raw_input),
