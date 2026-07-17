@@ -82,7 +82,7 @@ impl Transcoder {
                 // `toml` crate only deserializes from a string :(
                 let mut s = String::new();
                 input.read_to_string(&mut s)?;
-                let de = toml::Deserializer::new(&s);
+                let de = toml::Deserializer::parse(&s)?;
                 let mut ser = json::Serializer::new(jq);
                 transcode(de, &mut ser).context("failed to transcode from TOML to JSON")?;
             }
@@ -101,14 +101,25 @@ impl Transcoder {
                 io::copy(jq, &mut output)?;
             }
             Format::Toml => {
-                // `toml` crate only serializes to a string :(
-                let mut s = String::new();
-                let mut de = json::Deserializer::from_reader(jq);
-                let ser = toml::Serializer::new(&mut s);
-                transcode(&mut de, ser).context("failed to transcode from JSON to TOML")?;
-                if !s.ends_with('\n') {
-                    s.push('\n');
-                }
+                // Skip transcode here because of the following
+                // https://github.com/toml-rs/toml/issues/1015
+                let value: json::Value =
+                    json::from_reader(jq).context("failed to transcode from JSON to TOML")?;
+                let s = match value {
+                    json::Value::Object(_) => {
+                        toml::to_string(&value).context("failed to serialize to TOML")?
+                    }
+                    _ => {
+                        let mut s = String::new();
+                        let ser = toml::ser::ValueSerializer::new(&mut s);
+                        serde::Serialize::serialize(&value, ser)
+                            .context("failed to serialize to TOML")?;
+                        if !s.ends_with('\n') {
+                            s.push('\n');
+                        }
+                        s
+                    }
+                };
                 output.write_all(s.as_bytes())?;
             }
             Format::Yaml => {
