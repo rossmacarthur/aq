@@ -1,4 +1,5 @@
 use std::env;
+use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::path::Path;
 use std::process;
@@ -38,18 +39,7 @@ pub enum Format {
     Yaml,
 }
 
-impl Format {
-    fn from_str(s: &str) -> Result<Self> {
-        Ok(match s {
-            "j" | "json" => Self::Json,
-            "t" | "toml" => Self::Toml,
-            "y" | "yaml" => Self::Yaml,
-            _ => bail!("invalid format `{}`, expected `json`, `toml`, or `yaml`", s),
-        })
-    }
-}
-
-pub fn usage() -> ! {
+pub fn usage(code: i32) -> ! {
     const USAGE: &str = r#"aq - command line JSON / TOML / YAML processor
      built on top of jq by transcoding to and from JSON
 
@@ -70,13 +60,6 @@ page for more details. Some options may only be compatible with certain
 input or output formats. aq does make some effort to detect incompatible
 options but some may simply have no effect.
 
-Example (input YAML, output JSON):
-
-    $ echo 'foo: 1337' | aq -iy .
-    {
-      "foo": 1337
-    }
-
 Example (input TOML, output JSON):
 
     $ echo -e '[foo]\nbar = 1337' | aq -it .foo
@@ -88,12 +71,13 @@ Example (input JSON, output TOML):
 
     $ aq -n --arg name "Alice" '{name: $name}' --output toml
     name = "Alice"
-"#;
+
+See https://github.com/rossmacarthur/aq for more information"#;
     eprintln!("{USAGE}");
-    process::exit(0)
+    process::exit(code);
 }
 
-pub fn args() -> Result<Transcoder> {
+pub fn parse() -> Result<Transcoder> {
     let mut iter = env::args_os().skip(1);
 
     let mut input: Option<Format> = None;
@@ -104,15 +88,13 @@ pub fn args() -> Result<Transcoder> {
     let mut files = Vec::new();
 
     while let Some(arg) = iter.next() {
-        let missing = || {
-            format!(
-                "the argument `{}` requires a value but none was supplied",
-                arg.to_str().unwrap(),
-            )
-        };
         match arg.as_os_str().to_str() {
             Some("-h" | "--help") => {
-                usage();
+                usage(0);
+            }
+            Some("-V" | "--version") => {
+                println!("aq {}", env!("CARGO_PKG_VERSION"));
+                process::exit(0);
             }
             Some("--") => {
                 // This signals that all remaining arguments are not options
@@ -120,29 +102,24 @@ pub fn args() -> Result<Transcoder> {
                 break;
             }
             Some("-i" | "--input") => {
-                let fmt = iter.next().with_context(missing)?;
-                let fmt = fmt.to_str().context("invalid UTF-8")?;
-                input = Some(Format::from_str(fmt)?);
+                let fmt = iter.next().with_context(err_input_missing_arg)?;
+                input = Some(Format::from_os_str(&fmt).with_context(err_input_bad_format)?);
             }
             Some(arg) if arg.starts_with("-i") => {
-                let fmt = &arg[2..].trim_start_matches('=');
-                input = Some(Format::from_str(fmt)?);
-            }
-            Some(arg) if arg.starts_with("--input=") => {
-                input = Some(Format::from_str(&arg[8..])?);
+                input = Some(Format::from_str(&arg[2..]).with_context(err_input_bad_format)?);
             }
             Some("-o" | "--output") => {
-                let fmt = iter.next().with_context(missing)?;
-                let fmt = fmt.to_str().context("invalid UTF-8")?;
-                output = Some(Format::from_str(fmt)?);
-            }
-            Some(arg) if arg.starts_with("--output=") => {
-                output = Some(Format::from_str(&arg[9..])?);
+                let fmt = iter.next().with_context(err_output_missing_arg)?;
+                output = Some(Format::from_os_str(&fmt).with_context(err_output_bad_format)?);
             }
             Some(arg) if arg.starts_with("-o") => {
-                let fmt = &arg[2..].trim_start_matches('=');
-                output = Some(Format::from_str(fmt)?);
+                output = Some(Format::from_str(&arg[2..]).with_context(err_output_bad_format)?);
             }
+
+            // Remaining options are passed directly to jq, but we do need to
+            // track some of them in order to validate they are compatible with
+            // the input and output formats, and to control some of the ways
+            // that we invoke jq.
             Some("--null-input") => {
                 info.null_input = true;
                 args.push(arg);
@@ -163,41 +140,48 @@ pub fn args() -> Result<Transcoder> {
                 info.jsonargs = true;
                 args.push(arg);
             }
-            // options that take one argument
-            Some("--indent" | "--library-path") => {
-                let a = iter.next().with_context(missing)?;
+            Some("--indent") => {
+                let a = iter.next().with_context(err_indent_missing_arg)?;
                 args.push(arg);
                 args.push(a);
             }
-            // options that take two arguments
+            Some("--library-path" | "-L") => {
+                let a = iter.next().with_context(err_library_path_missing_arg)?;
+                args.push(arg);
+                args.push(a);
+            }
             Some(opt @ ("--arg" | "--argjson" | "--slurpfile" | "--rawfile")) => {
-                let a = iter.next().with_context(|| {
-                    format!("the argument `{opt}` requires two values, but none were supplied")
-                })?;
-                let b = iter.next().with_context(|| {
-                    format!("the argument `{opt}` requires two values, but only one was supplied")
-                })?;
+                let msg = || format!("{opt} requires two arguments, e.g. {opt} name value");
+                let a = iter.next().with_context(msg)?;
+                let b = iter.next().with_context(msg)?;
                 args.push(arg);
                 args.push(a);
                 args.push(b);
             }
+            Some(opt) if opt.starts_with("--") => {
+                args.push(arg);
+            }
             Some(opt) if opt != "-" && opt.starts_with('-') => {
-                if !opt.starts_with("--") {
-                    if opt.contains('n') {
-                        info.null_input = true;
-                    }
-                    if opt.contains('R') {
-                        info.raw_input = true;
-                    }
-                    if opt.contains('r') {
-                        info.raw_output = true;
-                    }
-                    if opt.contains("C") {
-                        info.color_output = true;
-                    }
-                    if opt.contains("M") {
-                        info.monochrome_output = true;
-                    }
+                if opt.contains('i') {
+                    bail!("-i must not be clustered with other short options");
+                }
+                if opt.contains('o') {
+                    bail!("-o must not be clustered with other short options");
+                }
+                if opt.contains('n') {
+                    info.null_input = true;
+                }
+                if opt.contains('R') {
+                    info.raw_input = true;
+                }
+                if opt.contains('r') {
+                    info.raw_output = true;
+                }
+                if opt.contains("C") {
+                    info.color_output = true;
+                }
+                if opt.contains("M") {
+                    info.monochrome_output = true;
                 }
                 args.push(arg);
             }
@@ -212,6 +196,8 @@ pub fn args() -> Result<Transcoder> {
         }
     }
 
+    // If --args or --jsonargs is set, then all remaining arguments are not
+    // input files, but rather arguments to pass to jq
     if info.args || info.jsonargs {
         args.append(&mut files);
     }
@@ -235,11 +221,11 @@ pub fn args() -> Result<Transcoder> {
         ("--jsonargs", info.jsonargs),
     ] {
         if is_set && input != Format::Json {
-            bail!("`{}` is only compatible with JSON input", arg)
+            bail!("{arg} is only compatible with JSON input")
         }
     }
     if info.raw_output && output != Format::Json {
-        bail!("`-r` is only compatible with JSON output")
+        bail!("-r is only compatible with JSON output")
     }
 
     let force_color_output = output == Format::Json
@@ -259,4 +245,43 @@ pub fn args() -> Result<Transcoder> {
             force_color_output,
         },
     })
+}
+
+impl Format {
+    fn from_os_str(s: &OsStr) -> Option<Self> {
+        Self::from_str(s.to_str()?)
+    }
+
+    fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "json" | "j" => Some(Format::Json),
+            "toml" | "t" => Some(Format::Toml),
+            "yaml" | "y" => Some(Format::Yaml),
+            _ => None,
+        }
+    }
+}
+
+fn err_input_missing_arg() -> String {
+    "-i / --input requires an argument: e.g. -it or --input toml".into()
+}
+
+fn err_input_bad_format() -> String {
+    "-i / --input takes one of 'json', 'toml', 'yaml', or shorthand 'j', 't', 'y'".into()
+}
+
+fn err_output_missing_arg() -> String {
+    "-o / --output requires an argument: e.g. -ot or --output toml".into()
+}
+
+fn err_output_bad_format() -> String {
+    "-o / --output takes one of 'json', 'toml', 'yaml', or shorthand 'j', 't', 'y'".into()
+}
+
+fn err_indent_missing_arg() -> String {
+    "--indent requires an argument: e.g. --indent 4".into()
+}
+
+fn err_library_path_missing_arg() -> String {
+    " -L / --library-path requires an argument: e.g. -L /search/path".into()
 }

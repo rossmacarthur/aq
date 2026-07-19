@@ -1,4 +1,4 @@
-mod parse;
+mod opt;
 
 use std::fs::File;
 use std::io;
@@ -17,7 +17,7 @@ use serde_json as json;
 use serde_transcode::transcode;
 use yaml_serde as yaml;
 
-use crate::parse::{Format, Opt};
+use crate::opt::{Format, Opt};
 
 #[derive(Debug)]
 pub struct Transcoder {
@@ -26,13 +26,32 @@ pub struct Transcoder {
     output: Format,
 }
 
-fn main() -> Result<()> {
-    let tc = Arc::new(parse::args()?);
+fn main() {
+    let tc = match opt::parse() {
+        Ok(tc) => tc,
+        Err(err) => {
+            eprintln!("aq: {err:#}");
+            eprintln!(
+                "\nUse aq --help for help with aq's command-line options\
+                 \nUse jq --help for help with jq's command-line options"
+            );
+            process::exit(2);
+        }
+    };
+
+    if let Err(err) = run(tc) {
+        eprintln!("aq: error: {err:#}");
+        process::exit(2);
+    }
+}
+
+fn run(tc: Transcoder) -> Result<()> {
+    let tc = Arc::new(tc);
 
     let mut cmd = Command::new("jq");
 
     if !tc.opt.info.filter && io::stdin().is_terminal() {
-        parse::usage();
+        opt::usage(2);
     }
 
     if tc.opt.force_color_output && io::stdout().is_terminal() {
@@ -44,7 +63,7 @@ fn main() -> Result<()> {
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::inherit());
 
-    let mut jq = cmd.spawn()?;
+    let mut jq = cmd.spawn().context("failed to spawn jq")?;
 
     // Feed input to `jq` in a separate thread
     let rx = if tc.opt.info.null_input {
@@ -54,9 +73,7 @@ fn main() -> Result<()> {
         let tc = tc.clone();
         let stdin = jq.stdin.take().expect("piped");
         thread::spawn(move || {
-            if let Err(err) = tx.send(tc.feed_input(stdin)) {
-                panic!("aq: failed to send result from thread: {}", err);
-            }
+            let _ = tx.send(tc.feed_input(stdin));
         });
         Some(rx)
     };
@@ -65,18 +82,18 @@ fn main() -> Result<()> {
     tc.feed_output(stdout)?;
 
     // Now wait for `jq` to exit
-    let status = jq.wait()?;
-
-    // Exit with the same exit code as `jq`
-    if !status.success() {
-        process::exit(status.code().unwrap_or(1));
-    }
+    let status = jq.wait().context("failed to wait for jq")?;
 
     // Wait for the input thread to finish and check for errors
     if let Some(rx) = rx {
         if let Ok(result) = rx.recv_timeout(Duration::from_millis(100)) {
             result?;
         }
+    }
+
+    // Exit with the same exit code as `jq`
+    if !status.success() {
+        process::exit(status.code().unwrap_or(2));
     }
 
     Ok(())
@@ -93,7 +110,7 @@ impl Transcoder {
                     self.transcode_input(io::stdin(), jq)?;
                 } else {
                     let file = File::open(path).with_context(|| {
-                        format!("failed to open `{}`", PathBuf::from(path).display())
+                        format!("failed to open file {}", PathBuf::from(path).display())
                     })?;
                     self.transcode_input(file, jq)?;
                 }
@@ -113,12 +130,12 @@ impl Transcoder {
                 input.read_to_string(&mut s)?;
                 let de = toml::Deserializer::parse(&s)?;
                 let mut ser = json::Serializer::new(jq);
-                transcode(de, &mut ser).context("failed to transcode from TOML to JSON")?;
+                transcode(de, &mut ser).context("failed to convert from TOML to JSON")?;
             }
             Format::Yaml => {
                 let de = yaml::Deserializer::from_reader(input);
                 let mut ser = json::Serializer::new(jq);
-                transcode(de, &mut ser).context("failed to transcode from YAML to JSON")?
+                transcode(de, &mut ser).context("failed to convert from YAML to JSON")?
             }
         }
         Ok(())
@@ -138,7 +155,7 @@ impl Transcoder {
                 // Skip transcode here because of the following
                 // https://github.com/toml-rs/toml/issues/1015
                 let value: json::Value =
-                    json::from_reader(jq).context("failed to transcode from JSON to TOML")?;
+                    json::from_reader(jq).context("failed to convert from JSON to TOML")?;
                 let s = match value {
                     json::Value::Object(_) => {
                         toml::to_string(&value).context("failed to serialize to TOML")?
@@ -159,7 +176,7 @@ impl Transcoder {
             Format::Yaml => {
                 let mut de = json::Deserializer::from_reader(jq);
                 let mut ser = yaml::Serializer::new(output);
-                transcode(&mut de, &mut ser).context("failed to transcode from JSON to YAML")?;
+                transcode(&mut de, &mut ser).context("failed to convert from JSON to YAML")?;
             }
         }
         Ok(())
