@@ -1,5 +1,6 @@
 mod opt;
 
+use std::ffi::OsStr;
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
@@ -26,32 +27,39 @@ pub struct Transcoder {
     output: Format,
 }
 
-fn main() {
-    let tc = match opt::parse() {
-        Ok(tc) => tc,
-        Err(err) => {
-            eprintln!("aq: {err:#}");
-            eprintln!(
-                "\nUse aq --help for help with aq's command-line options\
-                 \nUse jq --help for help with jq's command-line options"
-            );
-            process::exit(2);
-        }
-    };
-
-    if let Err(err) = run(tc) {
-        eprintln!("aq: error: {err:#}");
-        process::exit(2);
-    }
+#[derive(Debug, Clone, Copy)]
+#[repr(i32)]
+enum ExitCode {
+    Success,
+    Error,
+    Jq(i32),
 }
 
-fn run(tc: Transcoder) -> Result<()> {
+fn main() {
+    let code = match opt::parse() {
+        Ok(tc) => run(tc).unwrap_or_else(|err| {
+            eprintln!("aq: error: {err:#}");
+            ExitCode::Error
+        }),
+        Err(err) => {
+            eprintln!(
+                "aq: {err:#}\n\
+                 \nUse aq --help for help with aq's command-line options\
+                 \nUse jq --help for help with jq's command-line options"
+            );
+            ExitCode::Error
+        }
+    };
+    process::exit(code.into());
+}
+
+fn run(tc: Transcoder) -> Result<ExitCode> {
     let tc = Arc::new(tc);
 
     let mut cmd = Command::new("jq");
 
     if !tc.opt.info.filter && io::stdin().is_terminal() {
-        opt::usage(2);
+        opt::usage(ExitCode::Error);
     }
 
     if tc.opt.force_color_output && io::stdout().is_terminal() {
@@ -84,38 +92,63 @@ fn run(tc: Transcoder) -> Result<()> {
     // Now wait for `jq` to exit
     let status = jq.wait().context("failed to wait for jq")?;
 
+    let mut code = ExitCode::Success;
+    // Exit with the same exit code as `jq`
+    if !status.success() {
+        code = status.code().map(ExitCode::Jq).unwrap_or(ExitCode::Error);
+    }
     // Wait for the input thread to finish and check for errors
     if let Some(rx) = rx {
-        if let Ok(result) = rx.recv_timeout(Duration::from_millis(100)) {
-            result?;
+        if let Ok(ExitCode::Error) = rx.recv_timeout(Duration::from_millis(100)) {
+            code = ExitCode::Error;
         }
     }
 
-    // Exit with the same exit code as `jq`
-    if !status.success() {
-        process::exit(status.code().unwrap_or(2));
-    }
+    Ok(code)
+}
 
-    Ok(())
+impl From<ExitCode> for i32 {
+    fn from(code: ExitCode) -> Self {
+        match code {
+            ExitCode::Success => 0,
+            ExitCode::Error => 2,
+            ExitCode::Jq(code) => code,
+        }
+    }
 }
 
 impl Transcoder {
-    fn feed_input(&self, mut jq: ChildStdin) -> Result<()> {
+    fn feed_input(&self, mut jq: ChildStdin) -> ExitCode {
+        let mut code = ExitCode::Success;
         let jq = &mut jq;
         if self.opt.files.is_empty() {
-            self.transcode_input(io::stdin(), jq)
+            if let Err(err) = self.transcode_input(io::stdin(), jq) {
+                eprintln!("aq: error: {err:#}");
+                code = ExitCode::Error;
+            }
         } else {
             for path in &self.opt.files {
-                if path.to_str() == Some("-") {
-                    self.transcode_input(io::stdin(), jq)?;
-                } else {
-                    let file = File::open(path).with_context(|| {
-                        format!("failed to open file {}", PathBuf::from(path).display())
-                    })?;
-                    self.transcode_input(file, jq)?;
+                if let Err(err) = self.feed_input_from_path(path, jq) {
+                    eprintln!("aq: error: {err:#}");
+                    code = ExitCode::Error;
                 }
             }
-            Ok(())
+        }
+        code
+    }
+
+    fn feed_input_from_path(&self, path: &OsStr, jq: &mut ChildStdin) -> Result<()> {
+        if path.to_str() == Some("-") {
+            self.transcode_input(io::stdin(), jq)
+        } else {
+            if path.to_str() == Some("-") {
+                self.transcode_input(io::stdin(), jq)
+            } else {
+                let file = File::open(path).with_context(|| {
+                    format!("failed to open file {}", PathBuf::from(path).display())
+                })?;
+                self.transcode_input(file, jq)
+            }
         }
     }
 

@@ -6,6 +6,7 @@ use std::process;
 
 use anyhow::{bail, Context, Result};
 
+use crate::ExitCode;
 use crate::Transcoder;
 
 #[derive(Debug, Default)]
@@ -39,7 +40,7 @@ pub enum Format {
     Yaml,
 }
 
-pub fn usage(code: i32) -> ! {
+pub fn usage(code: ExitCode) -> ! {
     const USAGE: &str = r#"aq - command line JSON / TOML / YAML processor
      built on top of jq by transcoding to and from JSON
 
@@ -74,7 +75,7 @@ Example (input JSON, output TOML):
 
 See https://github.com/rossmacarthur/aq for more information"#;
     eprintln!("{USAGE}");
-    process::exit(code);
+    process::exit(code.into());
 }
 
 pub fn parse() -> Result<Transcoder> {
@@ -90,7 +91,7 @@ pub fn parse() -> Result<Transcoder> {
     while let Some(arg) = iter.next() {
         match arg.as_os_str().to_str() {
             Some("-h" | "--help") => {
-                usage(0);
+                usage(ExitCode::Success);
             }
             Some("-V" | "--version") => {
                 println!("aq {}", env!("CARGO_PKG_VERSION"));
