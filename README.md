@@ -3,8 +3,8 @@
 [![Crates.io Version](https://badgers.space/crates/version/aq-cli)](https://crates.io/crates/aq-cli)
 [![Build Status](https://badgers.space/github/checks/rossmacarthur/aq/trunk?label=build)](https://github.com/rossmacarthur/aq/actions/workflows/build.yaml)
 
-Extend [`jq`](https://stedolan.github.io/jq/manual) for any data format.
-Currently supports JSON, TOML, and YAML.
+Extend [`jq`](https://jqlang.org/manual/) for any data format. Currently
+supports JSON, TOML, and YAML.
 
 ## 📦 Installation
 
