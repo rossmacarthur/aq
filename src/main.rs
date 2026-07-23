@@ -74,9 +74,7 @@ fn run(tc: Transcoder) -> Result<ExitCode> {
     let mut jq = cmd.spawn().context("failed to spawn jq")?;
 
     // Feed input to `jq` in a separate thread
-    let rx = if tc.opt.info.null_input {
-        None
-    } else {
+    let rx = {
         let (tx, rx) = mpsc::channel();
         let tc = tc.clone();
         let stdin = jq.stdin.take().expect("piped");

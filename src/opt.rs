@@ -162,6 +162,9 @@ pub fn parse() -> Result<Transcoder> {
             Some(opt) if opt.starts_with("--") => {
                 args.push(arg);
             }
+            Some(opt) if opt.starts_with("-L") => {
+                args.push(arg);
+            }
             Some(opt) if opt != "-" && opt.starts_with('-') => {
                 if opt.contains('i') {
                     bail!("-i must not be clustered with other short options");
