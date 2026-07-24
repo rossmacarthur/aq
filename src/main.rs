@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::process;
 use std::process::{ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::mpsc;
+use std::sync::mpsc::RecvTimeoutError;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -97,8 +98,21 @@ fn run(tc: Transcoder) -> Result<ExitCode> {
     }
     // Wait for the input thread to finish and check for errors
     if let Some(rx) = rx {
-        if let Ok(ExitCode::Error) = rx.recv_timeout(Duration::from_millis(100)) {
-            code = ExitCode::Error;
+        match rx.recv_timeout(Duration::from_millis(100)) {
+            Err(RecvTimeoutError::Timeout) => {
+                eprintln!("aq: warn: input thread did not finish");
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                eprintln!("aq: warn: input thread panicked");
+                code = ExitCode::Error;
+            }
+            Ok(exit_code) => match exit_code {
+                ExitCode::Error => code = ExitCode::Error,
+                ExitCode::Success => {}
+                ExitCode::Jq(_) => {
+                    unreachable!()
+                }
+            },
         }
     }
 
