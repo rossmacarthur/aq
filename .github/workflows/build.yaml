@@ -4,7 +4,6 @@ on: [push, pull_request]
 
 env:
   BIN: aq
-  RUSTFLAGS: --deny warnings
 
 jobs:
   # ---------------------------------------------------------------------------
@@ -17,6 +16,9 @@ jobs:
     strategy:
       matrix:
         toolchain: [stable, beta, nightly]
+
+    env:
+      RUSTFLAGS: --deny warnings
 
     steps:
     - uses: actions/checkout@v7
@@ -87,8 +89,10 @@ jobs:
         include:
         - { os: macos-latest, target: aarch64-apple-darwin }
         - { os: macos-latest, target: x86_64-apple-darwin }
-        - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
-        - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu }
+        - { os: ubuntu-latest, target: aarch64-unknown-linux-gnu, cross: true }
+        - { os: ubuntu-latest, target: aarch64-unknown-linux-musl, cross: true }
+        - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu, cross: true }
+        - { os: ubuntu-latest, target: x86_64-unknown-linux-musl, cross: true }
         - { os: windows-latest, target: x86_64-pc-windows-msvc }
 
     name: release (${{ matrix.target }})
@@ -108,11 +112,13 @@ jobs:
 
       - name: Build
         shell: bash
-        run: cargo build --bin $BIN --locked --release --target ${{ matrix.target }}
-
-      - name: Strip binary
-        if: matrix.target != 'x86_64-pc-windows-msvc'
-        run: strip target/${{ matrix.target }}/release/$BIN
+        run: |
+          CARGO=cargo
+          if [ "${{ matrix.cross }}" == "true" ]; then
+            cargo install cross --git https://github.com/cross-rs/cross --locked
+            CARGO=cross
+          fi
+          $CARGO build --bin $BIN --locked --release --target ${{ matrix.target }}
 
       - name: Archive
         id: archive
@@ -136,7 +142,7 @@ jobs:
           fi
 
           rm -r release
-          echo "::set-output name=path::$archive"
+          echo "path=$archive" >> $GITHUB_OUTPUT
 
       - uses: softprops/action-gh-release@v3
         env:
