@@ -2,6 +2,7 @@ use std::env;
 use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::path::Path;
+use std::path::PathBuf;
 use std::process;
 
 use anyhow::{bail, Context, Result};
@@ -11,6 +12,8 @@ use crate::Transcoder;
 
 #[derive(Debug, Default)]
 pub struct Opt {
+    /// The program name
+    pub prog: Option<OsString>,
     /// Info about some jq options that are set
     pub info: Info,
     /// Arguments to pass to jq
@@ -40,27 +43,37 @@ pub enum Format {
     Yaml,
 }
 
-pub fn usage(code: ExitCode) -> ! {
-    const USAGE: &str = r#"aq - command line JSON / TOML / YAML processor
+pub fn usage(prog: Option<&OsStr>, code: ExitCode) -> ! {
+    let fmt = Format::from_prog(prog);
+    let prog = prog.and_then(|p| p.to_str()).unwrap_or("aq");
+
+    const USAGE: &str = {
+        r#"aq - command line JSON / TOML / YAML processor
      built on top of jq by transcoding to and from JSON
 
-Usage: aq [options] <jq filter> [file...]
+Usage: $PROG [options] <jq filter> [file...]
 
 Options:
-  -i, --input <fmt>  the input data format [default: auto]
-  -o, --output <fmt> the output data format [default: json]
-  ...                other options are passed directly to jq
+  -i, --input FMT   the input data format [default: auto]
+  -o, --output FMT  the output data format [default: json]
+  ...               other options are passed directly to jq
 
-Where <fmt> is one of json, toml, or yaml. Formats can also be specified
+Where FMT is one of json, toml, or yaml. Formats can also be specified
 using the shorthand j, t, or y. When the input format is not specified,
 it is inferred from the file extension of the input files, if stdin is
-used then the input format defaults to json.
+used then the input format defaults to json. aq is a multi-call binary,
+when symlinked to tq or yq the input format will default to toml or yaml
+respectively.
 
 All other options are passed directly to jq. See jq --help or the jq man
 page for more details. Some options may only be compatible with certain
 input or output formats. aq does make some effort to detect incompatible
-options but some may simply have no effect.
+options but some may simply have no effect."#
+    };
 
+    const TAIL: &str = "See https://github.com/rossmacarthur/aq for more information";
+
+    const AQ_EXAMPLES: &str = r#"
 Example (input TOML, output JSON):
 
     $ echo -e '[foo]\nbar = 1337' | aq -it .foo
@@ -72,14 +85,66 @@ Example (input JSON, output TOML):
 
     $ aq -n --arg name "Alice" '{name: $name}' --output toml
     name = "Alice"
+"#;
 
-See https://github.com/rossmacarthur/aq for more information"#;
-    eprintln!("{USAGE}");
+    const JQ_EXAMPLES: &str = r#"
+Example (input JSON, output JSON):
+
+    $ echo '{"foo": 0}' | $PROG .
+    {
+      "foo": 0
+    }
+"#;
+
+    const TQ_EXAMPLES: &str = r#"
+Example (input TOML, output JSON):
+
+    $ echo -e '[foo]\nbar = 1337' | $PROG .foo
+    {
+      "bar": 1337
+    }
+
+Example (input TOML, output TOML):
+
+    $ echo -e '[foo]\nbar = 1337' | $PROG -ot .foo
+    bar = 1337
+"#;
+
+    const YQ_EXAMPLES: &str = r#"
+Example (input YAML, output JSON):
+
+    $ echo -e 'foo: 1337' | $PROG .
+    {
+        "foo": 1337
+    }
+
+Example (input YAML, output YAML):
+
+    $ echo -e 'foo: 1337' | $PROG -oy .
+    foo: 1337
+"#;
+
+    let examples = match fmt {
+        Some(Format::Json) => JQ_EXAMPLES,
+        Some(Format::Toml) => TQ_EXAMPLES,
+        Some(Format::Yaml) => YQ_EXAMPLES,
+        None => AQ_EXAMPLES,
+    };
+
+    eprintln!(
+        "{usage}\n{examples}\n{TAIL}",
+        usage = USAGE.replace("$PROG", prog),
+        examples = examples.replace("$PROG", prog),
+    );
     process::exit(code.into());
 }
 
 pub fn parse() -> Result<Transcoder> {
-    let mut iter = env::args_os().skip(1);
+    let mut iter = env::args_os();
+
+    let prog = iter
+        .next()
+        .and_then(|p| PathBuf::from(p).file_name().map(OsStr::to_owned));
 
     let mut input: Option<Format> = None;
     let mut output: Option<Format> = None;
@@ -91,7 +156,7 @@ pub fn parse() -> Result<Transcoder> {
     while let Some(arg) = iter.next() {
         match arg.as_os_str().to_str() {
             Some("-h" | "--help") => {
-                usage(ExitCode::Success);
+                usage(prog.as_deref(), ExitCode::Success);
             }
             Some("-V" | "--version") => {
                 println!("aq {}", env!("CARGO_PKG_VERSION"));
@@ -206,17 +271,11 @@ pub fn parse() -> Result<Transcoder> {
         args.append(&mut files);
     }
 
-    let input = input.unwrap_or_else(|| {
-        for path in &files {
-            match Path::new(path).extension().and_then(|ext| ext.to_str()) {
-                Some("json" | "jsonl" | "ndjson") => return Format::Json,
-                Some("toml") => return Format::Toml,
-                Some("yaml") | Some("yml") => return Format::Yaml,
-                _ => {}
-            }
-        }
-        Format::Json
-    });
+    let input = input
+        .or_else(|| Format::from_prog(prog.as_deref()))
+        .or_else(|| Format::from_files(&files))
+        .unwrap_or(Format::Json);
+
     let output = output.unwrap_or(Format::Json);
 
     for (arg, is_set) in [
@@ -243,6 +302,7 @@ pub fn parse() -> Result<Transcoder> {
         input,
         output,
         opt: Opt {
+            prog,
             info,
             args,
             files,
@@ -252,6 +312,28 @@ pub fn parse() -> Result<Transcoder> {
 }
 
 impl Format {
+    fn from_prog(prog: Option<&OsStr>) -> Option<Self> {
+        prog.and_then(|b| match b.to_str() {
+            Some("aq") => None,
+            Some("jq") => Some(Format::Json),
+            Some("tq") => Some(Format::Toml),
+            Some("yq") => Some(Format::Yaml),
+            _ => None,
+        })
+    }
+
+    fn from_files(files: &[OsString]) -> Option<Self> {
+        for path in files {
+            match Path::new(path).extension().and_then(|ext| ext.to_str()) {
+                Some("json" | "jsonl" | "ndjson") => return Some(Format::Json),
+                Some("toml") => return Some(Format::Toml),
+                Some("yaml") | Some("yml") => return Some(Format::Yaml),
+                _ => {}
+            }
+        }
+        None
+    }
+
     fn from_os_str(s: &OsStr) -> Option<Self> {
         Self::from_str(s.to_str()?)
     }

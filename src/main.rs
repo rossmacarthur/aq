@@ -60,7 +60,7 @@ fn run(tc: Transcoder) -> Result<ExitCode> {
     let mut cmd = Command::new("jq");
 
     if !tc.opt.info.filter && io::stdin().is_terminal() {
-        opt::usage(ExitCode::Error);
+        opt::usage(tc.opt.prog.as_deref(), ExitCode::Error);
     }
 
     if tc.opt.force_color_output && io::stdout().is_terminal() {
