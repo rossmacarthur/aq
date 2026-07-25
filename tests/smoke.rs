@@ -1,6 +1,10 @@
 mod helpers;
 
-use crate::helpers::{aq, assert_parity, assert_parity_err, run, Stdin};
+use crate::helpers::aq;
+use crate::helpers::assert_parity;
+use crate::helpers::assert_parity_err;
+use crate::helpers::run;
+use crate::helpers::Stdin;
 
 /// aq should behave identically to jq for the same arguments and input if
 /// we haven't specified any input / output format conversions

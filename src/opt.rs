@@ -5,7 +5,9 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process;
 
-use anyhow::{bail, Context, Result};
+use anyhow::bail;
+use anyhow::Context;
+use anyhow::Result;
 
 use crate::ExitCode;
 use crate::Transcoder;

@@ -7,19 +7,24 @@ use std::io::prelude::*;
 use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::process;
-use std::process::{ChildStdin, ChildStdout, Command, Stdio};
+use std::process::ChildStdin;
+use std::process::ChildStdout;
+use std::process::Command;
+use std::process::Stdio;
 use std::sync::mpsc;
 use std::sync::mpsc::RecvTimeoutError;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::Context;
+use anyhow::Result;
 use serde_json as json;
 use serde_transcode::transcode;
 use yaml_serde as yaml;
 
-use crate::opt::{Format, Opt};
+use crate::opt::Format;
+use crate::opt::Opt;
 
 #[derive(Debug)]
 pub struct Transcoder {

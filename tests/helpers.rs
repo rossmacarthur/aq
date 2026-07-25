@@ -1,8 +1,11 @@
 use std::io::Write;
 use std::path::PathBuf;
-use std::process::{Command, ExitStatus, Stdio};
+use std::process::Command;
+use std::process::ExitStatus;
+use std::process::Stdio;
 
-use anyhow::{Context as _, Result};
+use anyhow::Context as _;
+use anyhow::Result;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StringOutput {
