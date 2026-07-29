@@ -202,18 +202,24 @@ impl Transcoder {
                 io::copy(jq, &mut output)?;
             }
             Format::Toml => {
-                // Skip transcode here because of the following
-                // https://github.com/toml-rs/toml/issues/1015
-                let value: json::Value =
-                    json::from_reader(jq).context("failed to convert from JSON to TOML")?;
-                let s = match value {
+                // Even if we wanted to, we can't transcode to TOML because of
+                // the following: https://github.com/toml-rs/toml/issues/1015
+                let buf = read_to_buf(jq)?;
+                if buf.trim_ascii().is_empty() {
+                    output.write_all(b"\n")?;
+                    return Ok(());
+                }
+
+                let jv = json::from_slice(&buf).context("failed to convert from JSON to TOML")?;
+                let s = match jv {
+                    json::Value::Null => String::from('\n'),
                     json::Value::Object(_) => {
-                        toml::to_string(&value).context("failed to serialize to TOML")?
+                        toml::to_string(&jv).context("failed to serialize to TOML")?
                     }
                     _ => {
                         let mut s = String::new();
                         let ser = toml::ser::ValueSerializer::new(&mut s);
-                        serde::Serialize::serialize(&value, ser)
+                        serde::Serialize::serialize(&jv, ser)
                             .context("failed to serialize to TOML")?;
                         if !s.ends_with('\n') {
                             s.push('\n');
@@ -224,11 +230,23 @@ impl Transcoder {
                 output.write_all(s.as_bytes())?;
             }
             Format::Yaml => {
-                let mut de = json::Deserializer::from_reader(jq);
+                let buf = read_to_buf(jq)?;
+                if buf.trim_ascii().is_empty() {
+                    output.write_all(b"\n")?;
+                    return Ok(());
+                }
+
+                let mut de = json::Deserializer::from_slice(&buf);
                 let mut ser = yaml::Serializer::new(output);
                 transcode(&mut de, &mut ser).context("failed to convert from JSON to YAML")?;
             }
         }
         Ok(())
     }
+}
+
+fn read_to_buf<R: Read>(mut input: R) -> io::Result<Vec<u8>> {
+    let mut buf = Vec::new();
+    input.read_to_end(&mut buf)?;
+    Ok(buf)
 }

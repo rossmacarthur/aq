@@ -169,6 +169,8 @@ fn toml_sanity() {
     assert(&["-it", "-ot", ".foo"], "foo = 1337\n", "1337\n");
     assert(&["-ot", ".", "bar.toml"], Stdin::Close, "bar = 42\n");
     assert(&["-ot", ".bar", "bar.toml"], Stdin::Close, "42\n");
+    assert(&["-ot", ".unknown", "bar.toml"], Stdin::Close, "\n");
+    assert(&["-ot", "select(false)|.", "bar.toml"], Stdin::Close, "\n");
 
     // from json to toml
     assert(
@@ -201,6 +203,8 @@ fn yaml_sanity() {
     assert(&["-iy", "-oy", ".foo"], "foo: 1337\n", "1337\n");
     assert(&["-oy", ".", "bar.yaml"], Stdin::Close, "bar: 42\n");
     assert(&["-oy", ".bar", "bar.yaml"], Stdin::Close, "42\n");
+    assert(&["-oy", ".unknown", "bar.yaml"], Stdin::Close, "null\n");
+    assert(&["-oy", "select(false)|.", "bar.yaml"], Stdin::Close, "\n");
 
     // from json to yaml
     assert(
