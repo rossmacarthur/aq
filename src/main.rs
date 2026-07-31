@@ -1,4 +1,5 @@
 mod opt;
+mod process;
 
 use std::ffi::OsStr;
 use std::fs::File;
@@ -6,7 +7,6 @@ use std::io;
 use std::io::prelude::*;
 use std::io::IsTerminal;
 use std::path::PathBuf;
-use std::process;
 use std::process::ChildStdin;
 use std::process::ChildStdout;
 use std::process::Command;
@@ -25,6 +25,7 @@ use yaml_serde as yaml;
 
 use crate::opt::Format;
 use crate::opt::Opt;
+use crate::process::ExitStatus;
 
 #[derive(Debug)]
 pub struct Transcoder {
@@ -33,19 +34,11 @@ pub struct Transcoder {
     output: Format,
 }
 
-#[derive(Debug, Clone, Copy)]
-#[repr(i32)]
-enum ExitCode {
-    Success,
-    Error,
-    Jq(i32),
-}
-
 fn main() {
-    let code = match opt::parse() {
+    let status = match opt::parse() {
         Ok(tc) => run(tc).unwrap_or_else(|err| {
             eprintln!("aq: error: {err:#}");
-            ExitCode::Error
+            ExitStatus::Error
         }),
         Err(err) => {
             eprintln!(
@@ -53,19 +46,19 @@ fn main() {
                  \nUse aq --help for help with aq's command-line options\
                  \nUse jq --help for help with jq's command-line options"
             );
-            ExitCode::Error
+            ExitStatus::Error
         }
     };
-    process::exit(code.into());
+    crate::process::exit(status)
 }
 
-fn run(tc: Transcoder) -> Result<ExitCode> {
+fn run(tc: Transcoder) -> Result<ExitStatus> {
     let tc = Arc::new(tc);
 
     let mut cmd = Command::new("jq");
 
     if !tc.opt.info.filter && io::stdin().is_terminal() {
-        opt::usage(tc.opt.prog.as_deref(), ExitCode::Error);
+        opt::usage(tc.opt.prog.as_deref(), ExitStatus::Error);
     }
 
     if tc.opt.force_color_output && io::stdout().is_terminal() {
@@ -90,16 +83,20 @@ fn run(tc: Transcoder) -> Result<ExitCode> {
         Some(rx)
     };
 
-    let stdout = jq.stdout.take().expect("piped");
-    tc.feed_output(stdout)?;
+    let mut status = ExitStatus::Success;
+
+    match tc.feed_output(jq.stdout.take().expect("piped")) {
+        Ok(()) => {}
+        Err(err) if is_io_broken_pipe(&err) => status = ExitStatus::BrokenPipe,
+        Err(err) => return Err(err),
+    }
 
     // Now wait for `jq` to exit
-    let status = jq.wait().context("failed to wait for jq")?;
+    let jq_status = jq.wait().context("failed to wait for jq")?;
 
-    let mut code = ExitCode::Success;
     // Exit with the same exit code as `jq`
-    if !status.success() {
-        code = status.code().map(ExitCode::Jq).unwrap_or(ExitCode::Error);
+    if !jq_status.success() {
+        status = ExitStatus::Jq(jq_status);
     }
     // Wait for the input thread to finish and check for errors
     if let Some(rx) = rx {
@@ -109,45 +106,31 @@ fn run(tc: Transcoder) -> Result<ExitCode> {
             }
             Err(RecvTimeoutError::Disconnected) => {
                 eprintln!("aq: warn: input thread panicked");
-                code = ExitCode::Error;
+                status = ExitStatus::Error;
             }
-            Ok(exit_code) => match exit_code {
-                ExitCode::Error => code = ExitCode::Error,
-                ExitCode::Success => {}
-                ExitCode::Jq(_) => {
-                    unreachable!()
-                }
-            },
+            Ok(exit_status) => {
+                status = status.or(exit_status);
+            }
         }
     }
 
-    Ok(code)
-}
-
-impl From<ExitCode> for i32 {
-    fn from(code: ExitCode) -> Self {
-        match code {
-            ExitCode::Success => 0,
-            ExitCode::Error => 2,
-            ExitCode::Jq(code) => code,
-        }
-    }
+    Ok(status)
 }
 
 impl Transcoder {
-    fn feed_input(&self, mut jq: ChildStdin) -> ExitCode {
-        let mut code = ExitCode::Success;
+    fn feed_input(&self, mut jq: ChildStdin) -> ExitStatus {
+        let mut code = ExitStatus::Success;
         let jq = &mut jq;
         if self.opt.files.is_empty() {
             if let Err(err) = self.transcode_input(io::stdin(), jq) {
                 eprintln!("aq: error: {err:#}");
-                code = ExitCode::Error;
+                code = ExitStatus::Error;
             }
         } else {
             for path in &self.opt.files {
                 if let Err(err) = self.feed_input_from_path(path, jq) {
                     eprintln!("aq: error: {err:#}");
-                    code = ExitCode::Error;
+                    code = ExitStatus::Error;
                 }
             }
         }
@@ -210,17 +193,17 @@ impl Transcoder {
                     return Ok(());
                 }
 
-                let jv = json::from_slice(&buf).context("failed to convert from JSON to TOML")?;
+                let jv = json::from_slice(&buf).context("failed to deserialize JSON")?;
                 let s = match jv {
                     json::Value::Null => String::from('\n'),
                     json::Value::Object(_) => {
-                        toml::to_string(&jv).context("failed to serialize to TOML")?
+                        toml::to_string(&jv).context("failed to serialize TOML")?
                     }
                     _ => {
                         let mut s = String::new();
                         let ser = toml::ser::ValueSerializer::new(&mut s);
                         serde::Serialize::serialize(&jv, ser)
-                            .context("failed to serialize to TOML")?;
+                            .context("failed to serialize TOML")?;
                         if !s.ends_with('\n') {
                             s.push('\n');
                         }
@@ -249,4 +232,20 @@ fn read_to_buf<R: Read>(mut input: R) -> io::Result<Vec<u8>> {
     let mut buf = Vec::new();
     input.read_to_end(&mut buf)?;
     Ok(buf)
+}
+
+fn is_io_broken_pipe(error: &anyhow::Error) -> bool {
+    for cause in error.chain() {
+        // TODO: This is a workaround for the fact that yaml_serde::Error does
+        // not correctly implement .source() for IO errors.
+        // See https://github.com/yaml/yaml-serde/pull/11
+        if let Some(error) = cause.downcast_ref::<yaml::Error>() {
+            if error.to_string().starts_with("Broken pipe (os error") {
+                return true;
+            }
+        } else if let Some(io_error) = cause.downcast_ref::<io::Error>() {
+            return io_error.kind() == io::ErrorKind::BrokenPipe;
+        }
+    }
+    false
 }

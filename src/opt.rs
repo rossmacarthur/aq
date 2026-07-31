@@ -3,13 +3,12 @@ use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::path::Path;
 use std::path::PathBuf;
-use std::process;
 
 use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
 
-use crate::ExitCode;
+use crate::ExitStatus;
 use crate::Transcoder;
 
 #[derive(Debug, Default)]
@@ -45,7 +44,7 @@ pub enum Format {
     Yaml,
 }
 
-pub fn usage(prog: Option<&OsStr>, code: ExitCode) -> ! {
+pub fn usage(prog: Option<&OsStr>, status: ExitStatus) -> ! {
     let fmt = Format::from_prog(prog);
     let prog = prog.and_then(|p| p.to_str()).unwrap_or("aq");
 
@@ -138,7 +137,7 @@ Example (input YAML, output YAML):
         usage = USAGE.replace("$PROG", prog),
         examples = examples.replace("$PROG", prog),
     );
-    process::exit(code.into());
+    crate::process::exit(status);
 }
 
 pub fn parse() -> Result<Transcoder> {
@@ -158,11 +157,11 @@ pub fn parse() -> Result<Transcoder> {
     while let Some(arg) = iter.next() {
         match arg.as_os_str().to_str() {
             Some("-h" | "--help") => {
-                usage(prog.as_deref(), ExitCode::Success);
+                usage(prog.as_deref(), ExitStatus::Success);
             }
             Some("-V" | "--version") => {
                 println!("aq {}", env!("CARGO_PKG_VERSION"));
-                process::exit(0);
+                crate::process::exit(ExitStatus::Success);
             }
             Some("--") => {
                 // This signals that all remaining arguments are not options

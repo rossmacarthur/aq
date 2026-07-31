@@ -11,11 +11,15 @@ jobs:
   # ---------------------------------------------------------------------------
 
   build:
-    runs-on: ubuntu-latest
-
     strategy:
       matrix:
+        os: [ubuntu-latest]
         toolchain: [stable, beta, nightly]
+        include:
+          - os: windows-latest
+            toolchain: stable
+
+    runs-on: ${{ matrix.os }}
 
     env:
       RUSTFLAGS: --deny warnings

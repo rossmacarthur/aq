@@ -1,10 +1,17 @@
 mod helpers;
 
+use std::io;
+use std::io::prelude::*;
+use std::process::Command;
+use std::process::Stdio;
+
 use crate::helpers::aq;
 use crate::helpers::assert_parity;
 use crate::helpers::assert_parity_err;
+use crate::helpers::jq;
 use crate::helpers::run;
 use crate::helpers::Stdin;
+use crate::helpers::StringOutput;
 
 /// aq should behave identically to jq for the same arguments and input if
 /// we haven't specified any input / output format conversions
@@ -150,10 +157,10 @@ fn json_jq_parity() {
 fn toml_sanity() {
     #[track_caller]
     fn assert(args: &[&str], input: impl Into<Stdin>, expected: &str) {
-        let mut aq = aq();
-        let output = run(aq.args(args), input).unwrap();
+        let output = run(aq().args(args), input).unwrap();
         eprintln!("aq: {output:?}");
-        assert!(output.status.success());
+        assert_eq!(output.code, Some(0));
+        assert_eq!(output.signal, None);
         assert_eq!(output.stdout, expected);
         assert_eq!(output.stderr, "");
     }
@@ -184,10 +191,10 @@ fn toml_sanity() {
 fn yaml_sanity() {
     #[track_caller]
     fn assert(args: &[&str], input: impl Into<Stdin>, expected: &str) {
-        let mut aq = aq();
-        let output = run(aq.args(args), input).unwrap();
+        let output = run(aq().args(args), input).unwrap();
         eprintln!("aq: {output:?}");
-        assert!(output.status.success());
+        assert_eq!(output.code, Some(0));
+        assert_eq!(output.signal, None);
         assert_eq!(output.stdout, expected);
         assert_eq!(output.stderr, "");
     }
@@ -211,5 +218,42 @@ fn yaml_sanity() {
         &["--output", "yaml", "."],
         "{\"foo\":1337}\n",
         "foo: 1337\n",
+    );
+}
+
+#[test]
+fn parity_broken_output_pipe() {
+    fn run(cmd: &mut Command) -> io::Result<StringOutput> {
+        let mut child = cmd
+            .arg("--unbuffered")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+
+        let mut input = child.stdin.take().unwrap();
+        let mut output = child.stdout.take().unwrap();
+
+        input.write_all(b"{}\n")?;
+        input.flush()?;
+
+        let mut byte = [0u8; 1];
+        output.read_exact(&mut byte)?;
+        drop(output);
+
+        // now write again while the output pipe is closed
+        input.write_all(b"{}\n")?;
+        input.flush()?;
+        drop(input);
+
+        let output = child.wait_with_output()?;
+        Ok(StringOutput::from(output))
+    }
+
+    let jq_out = run(&mut jq()).expect("failed to run jq");
+    let aq_out = run(&mut aq()).expect("failed to run aq");
+    assert_eq!(
+        aq_out, jq_out,
+        "output mismatch: \njq: {jq_out:?}\naq: {aq_out:?}"
     );
 }
