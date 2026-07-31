@@ -178,12 +178,32 @@ fn toml_sanity() {
     assert(&["-ot", ".bar", "bar.toml"], Stdin::Close, "42\n");
     assert(&["-ot", ".unknown", "bar.toml"], Stdin::Close, "\n");
     assert(&["-ot", "select(false)|.", "bar.toml"], Stdin::Close, "\n");
+    assert(
+        &["-ot", ".", "bar.toml", "baz.toml"],
+        "foo = 1337",
+        "bar = 42\nbaz = 7\n",
+    );
+    assert(
+        &["-it", "-ot", "-s", "."],
+        "foo = 1337\nbar = 42\nbaz = 7\n",
+        "[{ bar = 42, baz = 7, foo = 1337 }]\n",
+    );
 
     // from json to toml
     assert(
         &["--output", "toml", "."],
         "{\"foo\":1337}\n",
         "foo = 1337\n",
+    );
+    assert(
+        &["-ot", "."],
+        "{\"foo\":1337}\n{\"bar\":42}\n",
+        "foo = 1337\nbar = 42\n",
+    );
+    assert(
+        &["-ot", "-s", "."],
+        "{\"foo\":1337}\n{\"bar\":42}\n",
+        "[{ foo = 1337 }, { bar = 42 }]\n",
     );
 }
 
@@ -212,12 +232,37 @@ fn yaml_sanity() {
     assert(&["-oy", ".bar", "bar.yaml"], Stdin::Close, "42\n");
     assert(&["-oy", ".unknown", "bar.yaml"], Stdin::Close, "null\n");
     assert(&["-oy", "select(false)|.", "bar.yaml"], Stdin::Close, "\n");
+    assert(
+        &["-oy", ".", "bar.yaml", "baz.yaml"],
+        "foo: 1337",
+        "---\nbar: 42\n---\nbaz: 7\n",
+    );
+    assert(
+        &["-iy", "-oy", "."],
+        "---\nfoo: 1337\n---\nbar: 42\n---\nbaz: 7\n",
+        "---\nfoo: 1337\n---\nbar: 42\n---\nbaz: 7\n",
+    );
+    assert(
+        &["-iy", "-oy", "-s", "."],
+        "---\nfoo: 1337\n---\nbar: 42\n---\nbaz: 7\n",
+        "- foo: 1337\n- bar: 42\n- baz: 7\n",
+    );
 
     // from json to yaml
     assert(
         &["--output", "yaml", "."],
         "{\"foo\":1337}\n",
         "foo: 1337\n",
+    );
+    assert(
+        &["-oy", "."],
+        "{\"foo\":1337}\n{\"bar\":42}\n",
+        "---\nfoo: 1337\n---\nbar: 42\n",
+    );
+    assert(
+        &["-oy", "-s", "."],
+        "{\"foo\":1337}\n{\"bar\":42}\n",
+        "- foo: 1337\n- bar: 42\n",
     );
 }
 

@@ -158,9 +158,7 @@ impl Transcoder {
                 io::copy(&mut input, jq)?;
             }
             Format::Toml => {
-                // `toml` crate only deserializes from a string :(
-                let mut s = String::new();
-                input.read_to_string(&mut s)?;
+                let s = io::read_to_string(input)?;
                 let de = toml::Deserializer::parse(&s)?;
                 let mut ser = json::Serializer::new(jq);
                 transcode(de, &mut ser).context("failed to convert from TOML to JSON")?;
@@ -168,7 +166,9 @@ impl Transcoder {
             Format::Yaml => {
                 let de = yaml::Deserializer::from_reader(input);
                 let mut ser = json::Serializer::new(jq);
-                transcode(de, &mut ser).context("failed to convert from YAML to JSON")?
+                for doc in de {
+                    transcode(doc, &mut ser).context("failed to convert from YAML to JSON")?
+                }
             }
         }
         Ok(())
@@ -193,24 +193,15 @@ impl Transcoder {
                     return Ok(());
                 }
 
-                let jv = json::from_slice(&buf).context("failed to deserialize JSON")?;
-                let s = match jv {
-                    json::Value::Null => String::from('\n'),
-                    json::Value::Object(_) => {
-                        toml::to_string(&jv).context("failed to serialize TOML")?
-                    }
-                    _ => {
-                        let mut s = String::new();
-                        let ser = toml::ser::ValueSerializer::new(&mut s);
-                        serde::Serialize::serialize(&jv, ser)
-                            .context("failed to serialize TOML")?;
-                        if !s.ends_with('\n') {
-                            s.push('\n');
-                        }
-                        s
-                    }
-                };
-                output.write_all(s.as_bytes())?;
+                let jvs: Vec<json::Value> = json::Deserializer::from_slice(&buf)
+                    .into_iter()
+                    .collect::<json::Result<_>>()
+                    .context("failed to deserialize JSON")?;
+
+                for jv in jvs {
+                    let s = json_to_toml(&jv)?;
+                    output.write_all(s.as_bytes())?;
+                }
             }
             Format::Yaml => {
                 let buf = read_to_buf(jq)?;
@@ -219,13 +210,40 @@ impl Transcoder {
                     return Ok(());
                 }
 
-                let mut de = json::Deserializer::from_slice(&buf);
-                let mut ser = yaml::Serializer::new(output);
-                transcode(&mut de, &mut ser).context("failed to convert from JSON to YAML")?;
+                let jvs: Vec<json::Value> = json::Deserializer::from_slice(&buf)
+                    .into_iter()
+                    .collect::<json::Result<_>>()
+                    .context("failed to deserialize JSON")?;
+                let sep = jvs.len() > 1;
+
+                for jv in jvs {
+                    if sep {
+                        output.write_all(b"---\n")?;
+                    }
+                    let mut ser = yaml::Serializer::new(&mut output);
+                    serde::Serialize::serialize(&jv, &mut ser)
+                        .context("failed to serialize YAML")?;
+                }
             }
         }
         Ok(())
     }
+}
+
+fn json_to_toml(jv: &json::Value) -> Result<String> {
+    Ok(match jv {
+        json::Value::Null => String::from('\n'),
+        json::Value::Object(_) => toml::to_string(jv).context("failed to serialize TOML")?,
+        _ => {
+            let mut s = String::new();
+            let ser = toml::ser::ValueSerializer::new(&mut s);
+            serde::Serialize::serialize(jv, ser).context("failed to serialize TOML")?;
+            if !s.ends_with('\n') {
+                s.push('\n');
+            }
+            s
+        }
+    })
 }
 
 fn read_to_buf<R: Read>(mut input: R) -> io::Result<Vec<u8>> {
