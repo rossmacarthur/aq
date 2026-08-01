@@ -80,7 +80,7 @@ fn run(tc: Transcoder) -> Result<ExitStatus> {
         thread::spawn(move || {
             let _ = tx.send(tc.feed_input(stdin));
         });
-        Some(rx)
+        rx
     };
 
     let mut status = ExitStatus::Success;
@@ -99,18 +99,17 @@ fn run(tc: Transcoder) -> Result<ExitStatus> {
         status = ExitStatus::Jq(jq_status);
     }
     // Wait for the input thread to finish and check for errors
-    if let Some(rx) = rx {
-        match rx.recv_timeout(Duration::from_millis(100)) {
-            Err(RecvTimeoutError::Timeout) => {
-                eprintln!("aq: warn: input thread did not finish");
-            }
-            Err(RecvTimeoutError::Disconnected) => {
-                eprintln!("aq: warn: input thread panicked");
-                status = ExitStatus::Error;
-            }
-            Ok(exit_status) => {
-                status = status.or(exit_status);
-            }
+    match rx.recv_timeout(Duration::from_millis(100)) {
+        Err(RecvTimeoutError::Timeout) => {
+            // input thread did not finish, jq likely didn't read input
+            // this is normal behaviour if jq errors or when using `-n`
+        }
+        Err(RecvTimeoutError::Disconnected) => {
+            eprintln!("aq: warn: input thread panicked");
+            status = ExitStatus::Error;
+        }
+        Ok(exit_status) => {
+            status = status.or(exit_status);
         }
     }
 
