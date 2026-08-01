@@ -1,6 +1,6 @@
 [package]
 name = "aq-cli"
-version = "0.5.1"
+version = "0.5.2"
 authors = ["Ross MacArthur <ross@macarthur.io>"]
 edition = "2021"
 rust-version = "1.80.0"
@@ -8,7 +8,7 @@ description = "Extend jq for any data format"
 readme = "README.md"
 repository = "https://github.com/rossmacarthur/aq"
 license = "MIT OR Apache-2.0"
-keywords = ["cli", "json", "toml", "yaml", "query"]
+keywords = ["jq", "json", "toml", "yq", "yaml"]
 categories = ["command-line-utilities"]
 autotests = false
 
