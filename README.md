@@ -23,7 +23,7 @@ example with a TOML input and a YAML output:
 ```sh
 $ echo 'foo = 0' | aq -i toml -o yaml .
 ```
-```json
+```yaml
 foo: 0
 ```
 
