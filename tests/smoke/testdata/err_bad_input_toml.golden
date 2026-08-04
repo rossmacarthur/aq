@@ -1,0 +1,15 @@
+--- exit code ---
+Some(2)
+
+--- signal ---
+None
+
+--- stdout ---
+
+--- stderr ---
+aq: error: TOML parse error at line 1, column 6
+  |
+1 | foo =
+  |      ^
+string values must be quoted, expected literal string
+

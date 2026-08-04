@@ -1,3 +1,4 @@
+use std::fmt;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::Command;
@@ -19,6 +20,16 @@ pub struct StringOutput {
 pub enum Stdin {
     Feed(String),
     Close,
+}
+
+impl fmt::Display for StringOutput {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "--- exit code ---\n{:?}", self.code)?;
+        writeln!(f, "\n--- signal ---\n{:?}", self.signal)?;
+        write!(f, "\n--- stdout ---\n{}", self.stdout)?;
+        write!(f, "\n--- stderr ---\n{}", self.stderr)?;
+        Ok(())
+    }
 }
 
 impl From<&str> for Stdin {

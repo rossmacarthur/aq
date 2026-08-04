@@ -1,0 +1,12 @@
+--- exit code ---
+Some(5)
+
+--- signal ---
+None
+
+--- stdout ---
+
+--- stderr ---
+aq: error: failed to convert from YAML to JSON
+
+jq: parse error: Unfinished JSON term at EOF at line 1, column 7

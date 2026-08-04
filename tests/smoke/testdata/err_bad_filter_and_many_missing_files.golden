@@ -1,0 +1,22 @@
+--- exit code ---
+Some(3)
+
+--- signal ---
+None
+
+--- stdout ---
+
+--- stderr ---
+aq: error: failed to open file missing1.json
+aq: error: failed to open file missing2.json
+aq: error: failed to open file missing3.json
+aq: error: failed to open file missing4.json
+aq: error: failed to open file missing5.json
+aq: error: failed to open file missing6.json
+aq: error: failed to open file missing7.json
+aq: error: ... and 3 more input related errors
+
+jq: error: syntax error, unexpected end of file at <top-level>, line 1, column 1:
+    {
+    ^
+jq: 1 compile error

@@ -2,10 +2,13 @@ mod opt;
 mod process;
 
 use std::ffi::OsStr;
+use std::fmt::Display;
+use std::fmt::Write as _;
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
 use std::io::IsTerminal;
+use std::panic;
 use std::path::PathBuf;
 use std::process::ChildStdin;
 use std::process::ChildStdout;
@@ -14,11 +17,14 @@ use std::process::Stdio;
 use std::sync::mpsc;
 use std::sync::mpsc::RecvTimeoutError;
 use std::sync::Arc;
+use std::sync::LazyLock as Lazy;
+use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
 use anyhow::Context;
 use anyhow::Result;
+use indexmap::IndexMap;
 use serde_json as json;
 use serde_transcode::transcode;
 use yaml_serde as yaml;
@@ -35,6 +41,21 @@ pub struct Transcoder {
 }
 
 fn main() {
+    panic::set_hook(Box::new(|info| {
+        let mut s = String::from("\naq: panicked");
+        if let Some(payload) = info.payload_as_str() {
+            write!(&mut s, " with '{payload}'").ok();
+        }
+        if let Some(loc) = info.location() {
+            write!(&mut s, " at {}:{}", loc.file(), loc.line()).ok();
+        }
+        s.push_str(
+            "\naq: This is probably a bug, please file an issue at\n    \
+               https://github.com/rossmacarthur/aq/issues",
+        );
+        eprintln!("{s}");
+    }));
+
     let status = match opt::parse() {
         Ok(tc) => run(tc).unwrap_or_else(|err| {
             eprintln!("aq: error: {err:#}");
@@ -68,7 +89,7 @@ fn run(tc: Transcoder) -> Result<ExitStatus> {
     cmd.args(&tc.opt.args);
     cmd.stdin(Stdio::piped());
     cmd.stdout(Stdio::piped());
-    cmd.stderr(Stdio::inherit());
+    cmd.stderr(Stdio::piped());
 
     let mut jq = cmd.spawn().context("failed to spawn jq")?;
 
@@ -76,7 +97,7 @@ fn run(tc: Transcoder) -> Result<ExitStatus> {
     let rx = {
         let (tx, rx) = mpsc::channel();
         let tc = tc.clone();
-        let stdin = jq.stdin.take().expect("piped");
+        let stdin = jq.stdin.take().expect("stdin piped");
         thread::spawn(move || {
             let _ = tx.send(tc.feed_input(stdin));
         });
@@ -85,7 +106,7 @@ fn run(tc: Transcoder) -> Result<ExitStatus> {
 
     let mut status = ExitStatus::Success;
 
-    match tc.feed_output(jq.stdout.take().expect("piped")) {
+    match tc.feed_output(jq.stdout.take().expect("stdout piped")) {
         Ok(()) => {}
         Err(err) if is_io_broken_pipe(&err) => status = ExitStatus::BrokenPipe,
         Err(err) => return Err(err),
@@ -93,6 +114,7 @@ fn run(tc: Transcoder) -> Result<ExitStatus> {
 
     // Now wait for `jq` to exit
     let jq_status = jq.wait().context("failed to wait for jq")?;
+    let jq_stderr = read_to_buf(jq.stderr.take().expect("stderr piped"))?;
 
     // Exit with the same exit code as `jq`
     if !jq_status.success() {
@@ -113,7 +135,45 @@ fn run(tc: Transcoder) -> Result<ExitStatus> {
         }
     }
 
+    // Print input errors, if any, then print the jq stderr last, it's usually
+    // the most important for the user
+    let mut stderr = io::stderr();
+    write_input_errs(&mut stderr)?;
+    if !jq_stderr.is_empty() {
+        writeln!(&mut stderr)?;
+        stderr.write_all(&jq_stderr)?;
+    }
+
     Ok(status)
+}
+
+static INPUT_ERRS: Lazy<Mutex<IndexMap<String, usize>>> = Lazy::new(Default::default);
+
+fn push_input_err(s: impl Display) {
+    let mut input_errs = INPUT_ERRS.lock().unwrap();
+    *input_errs.entry(format!("{s}")).or_insert(0) += 1;
+}
+
+fn write_input_errs(stderr: &mut impl Write) -> Result<()> {
+    let mut input_errs = INPUT_ERRS.lock().unwrap();
+    let mut input_errs = input_errs.drain(..);
+    for (err, count) in input_errs.by_ref().take(7) {
+        write!(stderr, "aq: error: {err}")?;
+        if count > 1 {
+            writeln!(stderr, " (x{count})")?;
+        } else {
+            writeln!(stderr)?;
+        }
+    }
+    let err_count: usize = input_errs.map(|(_, c)| c).sum();
+    if err_count > 0 {
+        writeln!(
+            stderr,
+            "aq: error: ... and {} more input related errors",
+            err_count
+        )?;
+    }
+    Ok(())
 }
 
 impl Transcoder {
@@ -122,13 +182,13 @@ impl Transcoder {
         let jq = &mut jq;
         if self.opt.files.is_empty() {
             if let Err(err) = self.transcode_input(io::stdin(), jq) {
-                eprintln!("aq: error: {err:#}");
+                push_input_err(err);
                 code = ExitStatus::Error;
             }
         } else {
             for path in &self.opt.files {
                 if let Err(err) = self.feed_input_from_path(path, jq) {
-                    eprintln!("aq: error: {err:#}");
+                    push_input_err(err);
                     code = ExitStatus::Error;
                 }
             }

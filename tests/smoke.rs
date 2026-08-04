@@ -302,3 +302,48 @@ fn parity_broken_output_pipe() {
         "output mismatch: \njq: {jq_out:?}\naq: {aq_out:?}"
     );
 }
+
+#[test]
+fn err_bad_filter() {
+    let output = run(aq().args(["-n", "{"]), Stdin::Close).unwrap();
+    goldie::assert!(output);
+}
+
+#[test]
+fn err_bad_filter_and_missing_file() {
+    let output = run(aq().args(["-n", "{", "missing1.json"]), Stdin::Close).unwrap();
+    goldie::assert!(output);
+}
+
+#[test]
+fn err_bad_filter_and_missing_file_3x() {
+    let output = run(
+        aq().args(["-n", "{", "missing1.json", "missing1.json", "missing1.json"]),
+        Stdin::Close,
+    )
+    .unwrap();
+    goldie::assert!(output);
+}
+
+#[test]
+fn err_bad_filter_and_many_missing_files() {
+    let mut aq = aq();
+    aq.args(["-n", "{"]);
+    for i in 1..=10 {
+        aq.arg(format!("missing{i}.json"));
+    }
+    let output = run(&mut aq, Stdin::Close).unwrap();
+    goldie::assert!(output);
+}
+
+#[test]
+fn err_bad_input_toml() {
+    let output = run(aq().args(["-it"]), "foo =").unwrap();
+    goldie::assert!(output);
+}
+
+#[test]
+fn err_bad_input_yaml() {
+    let output = run(aq().args(["-iy"]), "foo:\n\tbar: 1").unwrap();
+    goldie::assert!(output);
+}
