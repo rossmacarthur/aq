@@ -57,12 +57,14 @@ the input format will default to TOML or YAML respectively.
 
 ### Homebrew
 
-**`aq`** can be installed from my personal tap which includes pre-built
+**`aq`** can be installed from my [personal tap] which includes pre-built
 binaries.
 
 ```sh
 brew install rossmacarthur/tap/aq
 ```
+
+[personal tap]: https://github.com/rossmacarthur/homebrew-tap
 
 ### Cargo
 
