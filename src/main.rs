@@ -313,14 +313,7 @@ fn read_to_buf<R: Read>(mut input: R) -> io::Result<Vec<u8>> {
 
 fn is_io_broken_pipe(error: &anyhow::Error) -> bool {
     for cause in error.chain() {
-        // TODO: This is a workaround for the fact that yaml_serde::Error does
-        // not correctly implement .source() for IO errors.
-        // See https://github.com/yaml/yaml-serde/pull/11
-        if let Some(error) = cause.downcast_ref::<yaml::Error>() {
-            if error.to_string().starts_with("Broken pipe (os error") {
-                return true;
-            }
-        } else if let Some(io_error) = cause.downcast_ref::<io::Error>() {
+        if let Some(io_error) = cause.downcast_ref::<io::Error>() {
             return io_error.kind() == io::ErrorKind::BrokenPipe;
         }
     }
