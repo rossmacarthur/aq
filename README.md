@@ -84,8 +84,8 @@ cargo install aq-cli --locked
 
 ### Pre-built binaries
 
-Pre-built binaries for macOS (x86_64), Windows, Linux (x86_64) are provided.
-These can be downloaded directly from the [the releases page].
+Pre-built binaries for macOS (aarch64, x86_64), Windows, Linux (aarch64, x86_64)
+are provided. These can be downloaded directly from the [the releases page].
 
 Alternatively, the following script can be used to automatically detect your host
 system, download the required artifact, and extract the **`aq`** binary to the
